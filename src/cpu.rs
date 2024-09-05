@@ -1,3 +1,5 @@
+use crate::{macros::*, not_implemented};
+
 #[derive(Debug, Default)]
 pub struct Registers
 {
@@ -52,10 +54,27 @@ pub struct Registers
    spsr_und: u32, 
 }
 
+enum CPUMode
+{
+    User,
+    FIQ,
+    IRQ,
+    Supervisor,
+    Abort,
+    Undefined,
+    System,
+}
+
 // emulation of an ARMT7DMI cpu
 pub struct CPU
 {
     registers: Registers,
+    t: bool,  // true for THUMB mode, false for ARM mode
+    mode: CPUMode,
+    n: bool,  // negative flag
+    z: bool,  // zero flag
+    c: bool,  // carry/borrow/extend flag
+    v: bool,  // overflow flag
 }
 
 impl CPU
@@ -64,9 +83,27 @@ impl CPU
     {
         return CPU {
             registers: {
-                let reg: Registers = Default::default();
+                let mut reg: Registers = Default::default();
                 reg
             },
+            t: false,
+            mode: CPUMode::User,
+            n: false,
+            z: false,
+            c: false,
+            v: false,
+        }
+    }
+
+    pub fn execute(&self, instruction: u32) -> u32
+    {
+        if self.t
+        {
+            not_implemented!();
+        }
+        else
+        {
+            return 0;
         }
     }
 }

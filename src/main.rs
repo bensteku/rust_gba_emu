@@ -5,6 +5,7 @@ use cpu::CPU;
 
 pub mod cartridge;
 pub mod cpu;
+pub mod macros;
 
 fn main() -> Result<(), Box<dyn Error>>
 {
