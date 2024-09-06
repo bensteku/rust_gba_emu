@@ -1,0 +1,79 @@
+// opcode reference for THUMB mode
+// pattern
+// mask
+
+// move shifted register
+0000 0000 0000 0000
+1110 0000 0000 0000
+
+// add subtract
+0001 1000 0000 0000
+1111 1000 0000 0000
+
+// move compare add subtract immediate
+0010 0000 0000 0000
+1110 0000 0000 0000
+
+// alu operations
+0100 0000 0000 0000
+1111 1100 0000 0000
+
+// hi register operations branch exchange
+0100 0100 0000 0000
+1111 1100 0000 0000
+
+// pc relative load
+0100 1000 0000 0000
+1111 1000 0000 0000
+
+// load store with register offset
+0101 0000 0000 0000
+1111 0010 0000 0000
+
+// load store sign-extended byte/halfword
+0101 0010 0000 0000
+1111 0010 0000 0000
+
+// load store with immediate offset
+0110 0000 0000 0000
+1110 0000 0000 0000
+
+// load store halfword
+1000 0000 0000 0000
+1111 0000 0000 0000
+
+// sp-relative load store
+1001 0000 0000 0000
+1111 0000 0000 0000
+
+// load address
+1010 0000 0000 0000
+1111 0000 0000 0000
+
+// add offset to stack pointer
+1011 0000 0000 0000
+1111 1111 0000 0000
+
+// push pop registers
+1011 0100 0000 0000
+1111 0110 0000 0000
+
+// multiple load store
+1100 0000 0000 0000
+1111 0000 0000 0000
+
+// conditional branch
+1101 0000 0000 0000
+1111 0000 0000 0000
+
+// software interrupt
+1101 1111 0000 0000
+1111 1111 0000 0000
+
+// unconditional branch
+1110 0000 0000 0000
+1111 1000 0000 0000
+
+// long branch with link
+1111 0000 0000 0000
+1111 0000 0000 0000
