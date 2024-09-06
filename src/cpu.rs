@@ -55,6 +55,20 @@ pub enum Registers {
     SPSR_IRQ = 35,
     SPSR_UND = 36,
 }
+// define handy aliases
+pub const SP: Registers = Registers::R13;
+pub const LR: Registers = Registers::R14;
+pub const SP_FIQ: Registers = Registers::R13_FIQ;
+pub const LR_FIQ: Registers = Registers::R14_FIQ;
+pub const SP_IRQ: Registers = Registers::R13_IRQ;
+pub const LR_IRQ: Registers = Registers::R14_IRQ;
+pub const SP_SVC: Registers = Registers::R13_SVC;
+pub const LR_SVC: Registers = Registers::R14_SVC;
+pub const SP_ABT: Registers = Registers::R13_ABT;
+pub const LR_ABT: Registers = Registers::R14_ABT;
+pub const SP_UND: Registers = Registers::R13_UND;
+pub const LR_UND: Registers = Registers::R14_UND;
+
 
 // these impls are necessary for the enum above to work with array accesses
 impl<T> Index<Registers> for [T] {
@@ -130,6 +144,103 @@ impl CPU {
         }
         else {
             return false;
+        }
+    }
+
+    // utilities to alias the first 16 registers depending on the mode the CPU is currently in
+    pub fn register_read(&self, register: u32) -> u32 
+    {
+        let register: usize = register.try_into().unwrap();
+        if self.mode == CPUMode::User || self.mode == CPUMode::System {
+            return self.registers[register];
+        }
+        else if self.mode == CPUMode::FIQ {
+            if register >= 8 {
+                return self.registers[register + 8];
+            }
+            else {
+                return self.registers[register];
+            }
+        }
+        else if self.mode == CPUMode::IRQ {
+            if register >= 13 {
+                return self.registers[register + 10];
+            }
+            else {
+                return self.registers[register];
+            }
+        }
+        else if self.mode == CPUMode::Supervisor {
+            if register >= 13 {
+                return self.registers[register + 12];
+            }
+            else {
+                return self.registers[register];
+            }
+        }
+        else if self.mode == CPUMode::Abort {
+            if register >= 13 {
+                return self.registers[register + 14];
+            }
+            else {
+                return self.registers[register];
+            }
+        }
+        else {
+            if register >= 13 {
+                return self.registers[register + 16];
+            }
+            else {
+                return self.registers[register];
+            }
+        }
+    }
+
+    pub fn register_write(&self, register: u32, value: u32) 
+    {
+        let register: usize = register.try_into().unwrap();
+        if self.mode == CPUMode::User || self.mode == CPUMode::System {
+            self.registers[register] = value;
+        }
+        else if self.mode == CPUMode::FIQ {
+            if register >= 8 {
+                self.registers[register + 8] = value;
+            }
+            else {
+                self.registers[register] = value;
+            }
+        }
+        else if self.mode == CPUMode::IRQ {
+            if register >= 13 {
+                self.registers[register + 10] = value;
+            }
+            else {
+                self.registers[register] = value;
+            }
+        }
+        else if self.mode == CPUMode::Supervisor {
+            if register >= 13 {
+                self.registers[register + 12] = value;
+            }
+            else {
+                self.registers[register] = value;
+            }
+        }
+        else if self.mode == CPUMode::Abort {
+            if register >= 13 {
+                self.registers[register] + 14 = value;
+            }
+            else {
+                self.registers[register] = value;
+            }
+        }
+        else {
+            if register >= 13 {
+                self.registers[register + 16] = value;
+            }
+            else {
+                self.registers[register] = value;
+            }
         }
     }
 }
