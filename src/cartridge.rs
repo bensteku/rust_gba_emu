@@ -1,8 +1,7 @@
 use std::fs::{read, File};
 use std::io::Read;
 
-pub struct Cartridge
-{
+pub struct Cartridge {
     entry: [u8; 4],
     logo: [u8; 156],
     title: [u8; 12],
@@ -23,10 +22,8 @@ pub struct Cartridge
     rom_data: Vec<u8>,
 }
 
-impl Cartridge
-{
-    pub fn new(filename: String) -> std::io::Result<Cartridge>
-    {
+impl Cartridge {
+    pub fn new(filename: String) -> std::io::Result<Cartridge> {
         let mut file = File::open(filename)?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
@@ -109,19 +106,17 @@ impl Cartridge
         Ok(cart)
     }
 
-    pub fn info(&self)
-    {
+    pub fn info(&self) {
         println!("------------");
         println!("ROM Info:");
         println!("Title: {}", String::from_utf8_lossy(&self.title));
         println!("Game code: {}", String::from_utf8_lossy(&self.game_code));
         println!("Maker code: {}", String::from_utf8_lossy(&self.maker_code));
-        println!("Software_version: {}", self.software_version);
+        println!("Software version: {}", self.software_version);
         println!("ROM size: {} MB", self.rom_data.len() / 1024 / 1024);
     }
 
-    pub fn read_adress(&self, adress: usize) -> u8
-    {
+    pub fn read_adress(&self, adress: usize) -> u8 {
         return self.rom_data[adress];
     }
 }

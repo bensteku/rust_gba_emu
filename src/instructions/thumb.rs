@@ -1,11 +1,9 @@
 use crate::not_implemented;
 type ProcFnThumb = fn(u16);
-pub fn placeholder_thumb(opcode: u16)
-{
+pub fn placeholder_thumb(opcode: u16) {
     not_implemented!();
 }
-const THUMB_OPCODES: [(u16, u16, ProcFnThumb); 19] =
-    [
+const THUMB_OPCODES: [(u16, u16, ProcFnThumb); 19] = [
         (0x0000, 0xE000, placeholder_thumb),  // move shifted register
         (0x1800, 0xF800, placeholder_thumb),  // add/subtract
         (0x2000, 0xE000, placeholder_thumb),  // move/compare/add/subtract immediate

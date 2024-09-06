@@ -9,8 +9,8 @@ const B_23_0: u32 = 0x00FFFFFF; // lower 24 bits
 
 // lookup table for opcodes and their handling functions
 // pattern, mask, handler function
-type ProcFnArm = fn(&CPU, u32);
-pub fn placeholder_arm(mut cpu: &CPU, opcode: u32) {
+type ProcFnArm = fn(&mut CPU, u32);
+pub fn placeholder_arm(cpu: &mut CPU, opcode: u32) {
     not_implemented!();
 }
 const ARM_OPCODES: [(u32, u32, ProcFnArm); 15] = [
@@ -31,7 +31,7 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 15] = [
         (0x0F000000, 0x0F000000, placeholder_arm),  // software interrupt
     ];
 
-pub fn process_instruction(mut cpu: &CPU, instruction: u32) {
+pub fn process_instruction(cpu: &mut CPU, instruction: u32) {
     let mut handled = false;
     for (pattern, mask, handler) in ARM_OPCODES
     {

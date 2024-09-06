@@ -74,8 +74,7 @@ impl<T> IndexMut<Registers> for [T] {
 }
 
 #[derive(PartialEq)]
-pub enum CPUMode
-{
+pub enum CPUMode {
     User,
     FIQ,
     IRQ,
@@ -86,8 +85,7 @@ pub enum CPUMode
 }
 
 // emulation of a ARMT7DMI CPU
-pub struct CPU
-{
+pub struct CPU {
     cycles: u128,
     pub registers: [u32; 37],
     pub t: bool,  // true for THUMB mode, false for ARM mode
@@ -97,10 +95,8 @@ pub struct CPU
 
 const COND_MASK: u32 = 0xF0000000;
 
-impl CPU
-{
-    pub fn new() -> CPU
-    {
+impl CPU {
+    pub fn new() -> CPU {
         return CPU {
             cycles: 0,
             registers: [0; 37],
@@ -110,8 +106,7 @@ impl CPU
         }
     }
 
-    pub fn cycle(&self)
-    {
+    pub fn cycle(&self) {
         if self.t
         {
             not_implemented!();
