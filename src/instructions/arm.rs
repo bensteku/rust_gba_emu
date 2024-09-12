@@ -44,7 +44,7 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 15] = [
     ];
 
 const ARM_DATA_OPCODES: [(u32, ProcFnArm); 16] = [
-        (0x00000000, placeholder_arm),  // AND
+        (, placeholder_arm),  // AND
         (0x00000001, placeholder_arm),  // EOR
         (0x00000002, placeholder_arm),  // SUB
         (0x00000003, placeholder_arm),  // RSB
@@ -62,8 +62,25 @@ const ARM_DATA_OPCODES: [(u32, ProcFnArm); 16] = [
         (0x0000000F, placeholder_arm),  // MVN
 ];
 
-type
-const ARM_SHIFT_TYPES
+// extra array to check for logical opcodes to handle CSPR flag effects
+const ARM_DATA_OPCODES_LOGICAL: [u32; 8] = [
+    0x00000000,
+    0x00000001,
+    0x00000008,
+    0x00000009,
+    0x0000000C,
+    0x0000000D,
+    0x0000000E,
+    0x0000000F,
+]
+
+type ShiftFnArm = fn(u32, u32) -> u32;
+const ARM_SHIFT_TYPES: [ShiftFnArm; 4] = [
+    logical_left_32bit,      // 00: logical left
+    logical_right_32bit,     // 01: logical right
+    arithmetic_right_32bit,  // 10: arithmetic right
+    rotate_32bit,            // 11: rotate right
+];
 
 pub fn process_instruction(cpu: &mut CPU, instruction: u32) {
     let mut handled = false;
@@ -122,13 +139,13 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
            shift_amount = (instruction & B_11_7) >> 7; 
         }
         let shift_type: u32 = (instruction & B_6_5) >> 5;
-
+        let shifted_value = ARM_SHIFT_TYPES[shift_type as usize](shift_type, shift_amount);
     }
 }
 
 pub fn branch_and_exchange(cpu: &mut CPU, instruction: u32) {
     // handle registers in other CPU modes
-    let rn: usize = (instruction & B_3_0) as usize;
+    let rn: u32 = instruction & B_3_0;
     let t_bit: u32 = instruction & B_0;
     if rn == 15 {
         println!("[WARNING] Branch and exchange instruction into the program counter register (R15), undefined behavior!")
@@ -173,8 +190,19 @@ pub fn branch(cpu: &mut CPU, instruction: u32) {
     cpu.registers[R15] += offset;
 }
 
-pub fn rotate_32bit(value: u32, rotate: u32) -> u32
-{
-    let rotate = rotate % 32;
+pub fn rotate_32bit(value: u32, amount: u32) -> u32 {
+    let rotate = amount % 32;
     return (value >> rotate) | (value << (32 - rotate));
+}
+
+pub fn logical_left_32bit(value: u32, amount: u32) -> u32 {
+
+}
+
+pub fn logical_right_32bit(value: u32, amount: u32) -> u32 {
+
+}
+
+pub fn arithmetic_right_32bit(value: u32, amount: u32) -> u32 {
+
 }
