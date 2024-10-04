@@ -120,7 +120,7 @@ impl CPU {
         }
     }
 
-    pub fn cycle(&self) {
+    pub fn cycle(&mut self) {
         if self.t
         {
             not_implemented!();
@@ -148,6 +148,7 @@ impl CPU {
     }
 
     // utilities to alias the first 16 registers depending on the mode the CPU is currently in
+    // note: since R15 is shared across all modes, I'll read and write to it directly in the code instead of using these methods
     pub fn register_read(&self, register: u32) -> u32 
     {
         let register: usize = register.try_into().unwrap();

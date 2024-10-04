@@ -1,0 +1,4 @@
+PDF page in the ARM7TDMI reference
+
+opcodes ARM mode: 44
+data processing: 52
