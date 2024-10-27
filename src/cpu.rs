@@ -1,4 +1,4 @@
-use crate::{instructions::arm::process_instruction, not_implemented};
+use crate::{instructions::arm::process_instruction_arm, not_implemented};
 use std::ops::Index;
 use std::ops::IndexMut;
 
@@ -131,7 +131,7 @@ impl CPU {
             // check if condition flags in instruction match with CPU state
             // if not then ignore the instruction
             if self.check_condition(instruction) {
-                process_instruction(self, instruction);
+                process_instruction_arm(self, instruction);
             }  
         }
     }

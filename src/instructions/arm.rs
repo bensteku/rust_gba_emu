@@ -1,26 +1,6 @@
-use crate::{cpu::CPU, cpu::CPUMode, cpu::Registers::*, not_implemented};
+use crate::{cpu::CPU, cpu::CPUMode, cpu::Registers::*, not_implemented, instructions::masks::*};
 
-// various mask to extract certain bits from the instruction
-const B_3_0:   u32 = 0x0000000F;  // lowest 4 bits
-const B_0:     u32 = 0x00000001;  // lowest bit
-const B_24:    u32 = 0x01000000;  // bit 24
-const B_23:    u32 = 0x00800000;  // bit 23
-const B_23_0:  u32 = 0x00FFFFFF;  // lower 24 bits
-const B_25:    u32 = 0x02000000;  // bit 25
-const B_20:    u32 = 0x00100000;  // bit 20
-const B_24_21: u32 = 0x03E00000;  // bits 24 to 21
-const B_19_16: u32 = 0x000F0000;  // bits 19 to 16
-const B_15_12: u32 = 0x0000F000;  // bits 15 to 12
-const B_11_0:  u32 = 0x00000FFF;  // lowest 12 bits
-const B_4:     u32 = 0x00000010;  // bit 4
-const B_7:     u32 = 0x00000040;  // bit 7
-const B_6_5:   u32 = 0x00000060;  // bits 6 and 5
-const B_11_7:  u32 = 0x00000780;  // bits 11 to 7
-const B_11_8:  u32 = 0x00000700;  // bits 11 to 8
-const B_7_0:   u32 = 0x000000FF;  // bits 7 to 0
-const B_31:    u32 = 0x80000000;  // bit 31
-
-// lookup table for opcodes and their handling functions
+// table for opcodes and their handling functions
 // pattern, mask, handler function
 type ProcFnArm = fn(&mut CPU, u32);
 pub fn placeholder_arm(cpu: &mut CPU, opcode: u32) {
@@ -45,7 +25,7 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 15] = [
     ];
 
 const ARM_DATA_OPCODES: [(u32, ProcFnArm); 16] = [
-        (, placeholder_arm),  // AND
+        (0x00000000, placeholder_arm),  // AND
         (0x00000001, placeholder_arm),  // EOR
         (0x00000002, placeholder_arm),  // SUB
         (0x00000003, placeholder_arm),  // RSB
@@ -83,7 +63,7 @@ const ARM_SHIFT_TYPES: [ShiftFnArm; 4] = [
     rotate_32bit,            // 11: rotate right
 ];
 
-pub fn process_instruction(cpu: &mut CPU, instruction: u32) {
+pub fn process_instruction_arm(cpu: &mut CPU, instruction: u32) {
     let mut handled = false;
     for (pattern, mask, handler) in ARM_OPCODES
     {
@@ -103,6 +83,7 @@ pub fn process_instruction(cpu: &mut CPU, instruction: u32) {
 }
 
 pub fn data_processing(cpu: &mut CPU, instruction: u32) {
+    // ARM manual: p. 52
     let i: bool = (instruction & B_25) != 0;
     let s: bool = (instruction & B_20) != 0;
     let rn: u32 = (instruction & B_19_16) >> 16;
@@ -117,7 +98,9 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
         // procedure: extend the 8 bit value to 32 bit, then rotate by twice the amount in the rotate bits
         let rotate: u32 = (instruction & B_11_8) >> 8;
         op2 = instruction & B_7_0;
-        op2 = rotate_32bit(cpu, false, op2, rotate * 2);
+        if rotate != 0 {
+            op2 = rotate_32bit(cpu, s, op2, rotate * 2);
+        }
     }
     else {
         // I flag is not set, meaning the second operand is a value in a register
@@ -130,21 +113,24 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
         let bit4: u32 = instruction & B_4;
         let shift_amount: u32;
         if bit4 != 0 {
-            // in this case, we load in the shift amount from the bottom 4 bytes of the register mentioned in bits 11 to 8
+            // in this case, we load in the shift amount from the bottom byte of the register mentioned in bits 11 to 8
             let shift_register_address: u32 = (instruction & B_11_8) >> 8;
             let shift_register_value: u32 = cpu.register_read(shift_register_address.try_into().unwrap());
-            shift_amount = shift_register_value & B_3_0;
+            shift_amount = shift_register_value & B_7_0;
         }
         else {
            // in this case the amount is determined from the instruction
            shift_amount = (instruction & B_11_7) >> 7; 
         }
         let shift_type: u32 = (instruction & B_6_5) >> 5;
-        let shifted_value = ARM_SHIFT_TYPES[shift_type as usize](cpu, s, shift_type, shift_amount);
+        // note: we run the shifts even if the shift amount turns out to be 0 such that the carry flags get affected correctly
+        // even if nothing actually happens to the operand value
+        op2 = ARM_SHIFT_TYPES[shift_type as usize](cpu, s, op2_init_value, shift_amount);    
     }
 }
 
 pub fn branch_and_exchange(cpu: &mut CPU, instruction: u32) {
+    // ARM manual: p. 48
     // handle registers in other CPU modes
     let rn: u32 = instruction & B_3_0;
     let t_bit: u32 = instruction & B_0;
@@ -156,6 +142,7 @@ pub fn branch_and_exchange(cpu: &mut CPU, instruction: u32) {
 }
 
 pub fn branch(cpu: &mut CPU, instruction: u32) {
+    // ARM manual: p. 50
     let bit_24: u32 = instruction & B_24;
     if bit_24 != 0 {
         // link bit is set, copy old PC into R14
@@ -177,22 +164,75 @@ pub fn branch(cpu: &mut CPU, instruction: u32) {
 pub fn rotate_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
     // rotates a 32 bit binary value to the right
 
-    // pass through to left shift if amount is 0
+    // note: in this and all follow up functions the carry out is strictly not the bit itself
+    // but a u32 with all zeros outside of the bit where the information is extracted from
+    // a comparison with 0 then determines the bit's value without any shifting
+    let carry_out: u32;
+    let result: u32;
+
+    // amount 0 encodes rotate right extended:
+    // carry out is bit 0 of the input,
+    // output is created by rotating input once, then replacing the highest bit with the C flag
     if amount == 0 {
-        return logical_left_32bit(cpu, s, value, 0);
+        carry_out = value & B_0;
+        if cpu.cnzv & (B_3 as u8) != 0 {
+            result = ((value >> 1) | (value << (32 - 1))) | (1 << 31);
+        }
+        else {
+            result = ((value >> 1) | (value << (32 - 1))) & !(1 << 31);
+        }
+        
     }
-    let rotate = amount % 32;
-    return (value >> rotate) | (value << (32 - rotate));
+    else if amount == 32 {
+        carry_out = value & B_31;
+        result = value;
+    }
+    else {
+        let rotate = amount % 32;
+        carry_out = (value >> rotate - 1) & B_0;
+        result = (value >> rotate) | (value << (32 - rotate));
+    }
+    
+    if s {
+        if carry_out != 0 {
+            cpu.cnzv = cpu.cnzv | 0x08;
+        }
+        else {
+            cpu.cnzv = cpu.cnzv & 0x07;
+        }
+    }
+
+    return result;
 }
 
 pub fn logical_left_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
     // logically shifts a 32 bit binary value leftwards
 
-    // amount can be 31 max, so this should never cause Rust to panic here due to shift amount >= 32
-    
-    let one_less_shift = value << (amount - 1);
-    let carry_out = one_less_shift & B_31;
-    if s && amount != 0 {  // if we shift 0 the carry bit stays the same
+    let carry_out: u32;
+    let result: u32;
+
+    // in case the amount is 32, apply the special rule from the ARM instruction manual:
+    // zero result, carry out is first bit of input
+    if amount == 32 {
+        carry_out = B_0 & value;
+        result = 0;
+    }
+    // the next case:
+    // zero result, carry out zero
+    else if amount > 32 {
+        carry_out = 0;
+        result = 0;
+    }
+    // in other cases do the shift as normal
+    // carry out is the leftmost bit of the original value
+    else {
+        let one_less_shift = value << (amount - 1);
+        carry_out = one_less_shift & B_31;
+        result = one_less_shift << 1;
+    }
+    // handle carry out
+    // note: if amount == 0, no carry out change is supposed to propagate
+    if s && amount != 0 { 
         if carry_out != 0 {
             cpu.cnzv = cpu.cnzv | 0x08;
         }
@@ -200,27 +240,30 @@ pub fn logical_left_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u3
             cpu.cnzv = cpu.cnzv & 0x07;
         }
     }
-    return one_less_shift << 1;
+    return result;
 }
 
 pub fn logical_right_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
     // logically shifts a 32 bit binary value rightwards
 
+    let carry_out: u32;
+    let result: u32;
+
     // amount 0 encodes LSR 32, which means zero output and bit 31 of input as the carry out
-    if amount == 0 {
-        let carry_out = value & B_31;
-        if s {
-            if carry_out != 0 {
-                cpu.cnzv = cpu.cnzv | 0x08;
-            }
-            else {
-                cpu.cnzv = cpu.cnzv & 0x07;
-            } 
-        }
-        return 0;
+    if amount == 0 || amount == 32 {
+        carry_out = value & B_31;
+        result = 0;
     }
-    let one_less_shift = value >> (amount - 1);
-    let carry_out = one_less_shift & B_0;
+    else if amount > 32 {
+        carry_out = 0;
+        result = 0;
+    }
+    else {
+        let one_less_shift = value >> (amount - 1);
+        carry_out = one_less_shift & B_0;
+        result = one_less_shift >> 1;
+    }
+
     if s {
         if carry_out != 0 {
             cpu.cnzv = cpu.cnzv | 0x08;
@@ -229,22 +272,34 @@ pub fn logical_right_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u
             cpu.cnzv = cpu.cnzv & 0x07;
         }
     }
-    return one_less_shift >> 1;
+
+    return result;
 }
 
 pub fn arithmetic_right_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
     // shifts a 32 bit binary value rightwards, filling up vacated places with the value of bit 31 of the input
 
+    let carry_out: u32;
+    let result: u32;
+
     // pass through to left shift if amount is 0
     if amount == 0 {
         return logical_left_32bit(cpu, s, value, 0);
     }
-    // in Rust, signed types apparently right shift arithmetically inherently
-    // so instead of implementing this myself, I'll just convert and reconvert
-    // still have to get the carry bit though
-    let temp = value as i32;
-    let one_less_shift = value >> (amount - 1);
-    let carry_out = one_less_shift & B_0;
+    // if amount is 32 or greater fill output and carry bit with bit 31 of the input
+    else if amount >= 32 {
+        carry_out = value & B_31;
+        result = if carry_out != 0 { 0xFFFFFFFF } else { 0x0 };
+    }
+    else {
+        // in Rust, signed types apparently right shift arithmetically inherently
+        // so instead of implementing this myself, I'll just convert and reconvert
+        // still have to get the carry bit though
+        let temp = value as i32;
+        let one_less_shift = value >> (amount - 1);
+        carry_out = one_less_shift & B_0;
+        result = (temp >> amount) as u32;
+    }
     if s {
         if carry_out != 0 {
             cpu.cnzv = cpu.cnzv | 0x08;
@@ -253,5 +308,6 @@ pub fn arithmetic_right_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -
             cpu.cnzv = cpu.cnzv & 0x07;
         }
     }
-    return (temp >> amount) as u32;
+
+    return result;
 }
