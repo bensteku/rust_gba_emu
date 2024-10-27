@@ -1,4 +1,6 @@
 PDF page in the ARM7TDMI reference
 
+registers: 30
+CPSR: 34
 opcodes ARM mode: 44
 data processing: 52

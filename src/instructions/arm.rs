@@ -1,4 +1,4 @@
-use crate::{cpu::CPU, cpu::CPUMode, cpu::Registers::*, not_implemented, instructions::masks::*};
+use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks::*, not_implemented};
 
 // table for opcodes and their handling functions
 // pattern, mask, handler function
@@ -127,6 +127,7 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
         // even if nothing actually happens to the operand value
         op2 = ARM_SHIFT_TYPES[shift_type as usize](cpu, s, op2_init_value, shift_amount);    
     }
+    // now that both operands are known, we can apply the operations onto it
 }
 
 pub fn branch_and_exchange(cpu: &mut CPU, instruction: u32) {
@@ -175,7 +176,7 @@ pub fn rotate_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
     // output is created by rotating input once, then replacing the highest bit with the C flag
     if amount == 0 {
         carry_out = value & B_0;
-        if cpu.cnzv & (B_3 as u8) != 0 {
+        if cpu.get_condition_flag(ConditionFlags::C) {
             result = ((value >> 1) | (value << (32 - 1))) | (1 << 31);
         }
         else {
@@ -195,10 +196,10 @@ pub fn rotate_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
     
     if s {
         if carry_out != 0 {
-            cpu.cnzv = cpu.cnzv | 0x08;
+            cpu.set_condition_flag(ConditionFlags::C, true);
         }
         else {
-            cpu.cnzv = cpu.cnzv & 0x07;
+            cpu.set_condition_flag(ConditionFlags::C, false);
         }
     }
 
@@ -232,12 +233,12 @@ pub fn logical_left_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u3
     }
     // handle carry out
     // note: if amount == 0, no carry out change is supposed to propagate
-    if s && amount != 0 { 
+    if s && amount != 0 {
         if carry_out != 0 {
-            cpu.cnzv = cpu.cnzv | 0x08;
+            cpu.set_condition_flag(ConditionFlags::C, true);
         }
         else {
-            cpu.cnzv = cpu.cnzv & 0x07;
+            cpu.set_condition_flag(ConditionFlags::C, false);
         }
     }
     return result;
@@ -266,10 +267,10 @@ pub fn logical_right_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u
 
     if s {
         if carry_out != 0 {
-            cpu.cnzv = cpu.cnzv | 0x08;
+            cpu.set_condition_flag(ConditionFlags::C, true);
         }
         else {
-            cpu.cnzv = cpu.cnzv & 0x07;
+            cpu.set_condition_flag(ConditionFlags::C, false);
         }
     }
 
@@ -302,10 +303,10 @@ pub fn arithmetic_right_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -
     }
     if s {
         if carry_out != 0 {
-            cpu.cnzv = cpu.cnzv | 0x08;
+            cpu.set_condition_flag(ConditionFlags::C, true);
         }
         else {
-            cpu.cnzv = cpu.cnzv & 0x07;
+            cpu.set_condition_flag(ConditionFlags::C, false);
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::{instructions::arm::process_instruction_arm, not_implemented};
+use crate::{instructions::arm::process_instruction_arm, not_implemented, instructions::masks::*, util::*};
 use std::ops::Index;
 use std::ops::IndexMut;
 
@@ -48,6 +48,10 @@ pub enum Registers {
     R13_UND = 29,
     R14_UND = 30,
     // Status registers
+    // the CPSR follows the following format
+    // bits 31 to 28: NZCV flags
+    // bit 27 to 8: reserved
+    // bits 7 to 0: IFT flags, then mode signature
     CPSR = 31,
     SPSR_FIQ = 32,
     SPSR_SVC = 33,
@@ -89,39 +93,42 @@ impl<T> IndexMut<Registers> for [T] {
 
 #[derive(PartialEq)]
 pub enum CPUMode {
-    User,
-    FIQ,
-    IRQ,
-    Supervisor,
-    Abort,
-    Undefined,
-    System,
+    // numbers from CPU manual p.35
+    User = 0b10000,
+    FIQ = 0b10001,
+    IRQ = 0b10010,
+    Supervisor = 0b10011,
+    Abort = 0b10111,
+    Undefined = 0b11011,
+    System = 0b11111,
+}
+
+#[repr(u32)]
+pub enum ConditionFlags {
+    V = 0x1000000,
+    C = 0x2000000,
+    Z = 0x4000000,
+    N = 0x8000000,
 }
 
 // emulation of a ARMT7DMI CPU
 pub struct CPU {
     cycles: u128,
     pub registers: [u32; 37],
-    pub t: bool,  // true for THUMB mode, false for ARM mode
-    pub mode: CPUMode,
-    pub cnzv: u8,  // C, N, Z, and V flags, only the lower 4 bits are used
 }
-
-const COND_MASK: u32 = 0xF0000000;
 
 impl CPU {
     pub fn new() -> CPU {
-        return CPU {
+        let mut init: [u32; 37] = [0; 37];
+        init[Registers::CPSR] = 16; // 16 == binary for user mode
+        CPU {
             cycles: 0,
-            registers: [0; 37],
-            t: false,
-            mode: CPUMode::User,
-            cnzv: 0x00,
+            registers: init
         }
     }
 
     pub fn cycle(&mut self) {
-        if self.t
+        if self.get_state()
         {
             not_implemented!();
         }
@@ -137,9 +144,9 @@ impl CPU {
     }
 
     // checks the condition of an instruction with the state of the CPU, this is only for ARM mode
+    #[inline]
     pub fn check_condition(&self, instruction: u32) -> bool {
-        let cond_flags: u8 = ((instruction & COND_MASK) >> 28).try_into().unwrap();  // should never panic
-        if cond_flags == self.cnzv {
+        if instruction & B_31_28 == self.get_all_condition_flags() {
             return true;
         }
         else {
@@ -147,101 +154,116 @@ impl CPU {
         }
     }
 
+    // utilities to extract and set information in the CPSR
+    pub fn get_state(&self) -> bool {
+        // true: THUMB state, false: ARM state
+        return self.registers[Registers::CPSR] & B_5 != 0;
+    }
+
+    pub fn set_state(&mut self, set: bool) {
+        // same as above
+        if set {
+            self.registers[Registers::CPSR] = self.registers[Registers::CPSR] | (1 << 5);
+        }
+        else {
+            self.registers[Registers::CPSR] = self.registers[Registers::CPSR] & !(1 << 5);
+        }
+    }
+
+    pub fn get_fiq_disable(&self) -> bool {
+        return self.registers[Registers::CPSR] & B_6 != 0;
+    }
+
+    pub fn set_fiq_disable(&mut self, set: bool) {
+        if set {
+            self.registers[Registers::CPSR] = self.registers[Registers::CPSR] | (1 << 6);
+        }
+        else {
+            self.registers[Registers::CPSR] = self.registers[Registers::CPSR] & !(1 << 6);
+        }
+    }
+
+    pub fn get_irq_disable(&self) -> bool {
+        return self.registers[Registers::CPSR] & B_7 != 0;
+    }
+
+    pub fn set_irq_disable(&mut self, set: bool) {
+        if set {
+            self.registers[Registers::CPSR] = self.registers[Registers::CPSR] | (1 << 7);
+        }
+        else {
+            self.registers[Registers::CPSR] = self.registers[Registers::CPSR] & !(1 << 7);
+        }
+    }
+
+    pub fn get_mode(&self) -> CPUMode {
+        let mode: u32 = self.registers[Registers::CPSR] & B_4_0;
+        match mode {
+            0b10000 => CPUMode::User,
+            0b10001 => CPUMode::FIQ,
+            0b10010 => CPUMode::IRQ,
+            0b10011 => CPUMode::Supervisor,
+            0b10111 => CPUMode::Abort,
+            0b11011 => CPUMode::Undefined,
+            0b11111 => CPUMode::System,
+            _       => panic!("Invalid mode bits in CPSR!")
+        }
+    }
+
+    pub fn set_mode(&mut self, mode: CPUMode) {
+        match mode {
+            CPUMode::User       => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 0, 4, 0b10000),
+            CPUMode::FIQ        => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 0, 4, 0b10001),
+            CPUMode::IRQ        => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 0, 4, 0b10010),
+            CPUMode::Supervisor => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 0, 4, 0b10011),
+            CPUMode::Abort      => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 0, 4, 0b10111),
+            CPUMode::Undefined  => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 0, 4, 0b11011),
+            CPUMode::System     => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 0, 4, 0b11111),
+        }
+    }
+
+    pub fn get_condition_flag(&self, flag: ConditionFlags) -> bool {
+        return self.registers[Registers::CPSR] & (flag as u32) != 0;
+    }
+
+    pub fn set_condition_flag(&mut self, flag: ConditionFlags, set: bool) {
+        match flag {
+            ConditionFlags::V  => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 28, 28, set as u32),
+            ConditionFlags::C  => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 29, 29, set as u32),
+            ConditionFlags::Z  => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 30, 30, set as u32),
+            ConditionFlags::N  => self.registers[Registers::CPSR] = set_bits_in_range(self.registers[Registers::CPSR], 31, 31, set as u32),
+        }
+    }
+
+    pub fn get_all_condition_flags(&self) -> u32 {
+        return self.registers[Registers::CPSR] & 0xF0000000;
+    }
+
     // utilities to alias the first 16 registers depending on the mode the CPU is currently in
     // note: since R15 is shared across all modes, I'll read and write to it directly in the code instead of using these methods
     pub fn register_read(&self, register: u32) -> u32 
     {
         let register: usize = register.try_into().unwrap();
-        if self.mode == CPUMode::User || self.mode == CPUMode::System {
-            return self.registers[register];
-        }
-        else if self.mode == CPUMode::FIQ {
-            if register >= 8 {
-                return self.registers[register + 8];
-            }
-            else {
-                return self.registers[register];
-            }
-        }
-        else if self.mode == CPUMode::IRQ {
-            if register >= 13 {
-                return self.registers[register + 10];
-            }
-            else {
-                return self.registers[register];
-            }
-        }
-        else if self.mode == CPUMode::Supervisor {
-            if register >= 13 {
-                return self.registers[register + 12];
-            }
-            else {
-                return self.registers[register];
-            }
-        }
-        else if self.mode == CPUMode::Abort {
-            if register >= 13 {
-                return self.registers[register + 14];
-            }
-            else {
-                return self.registers[register];
-            }
-        }
-        else {
-            if register >= 13 {
-                return self.registers[register + 16];
-            }
-            else {
-                return self.registers[register];
-            }
+        match self.get_mode() {
+            CPUMode::User | CPUMode::System => return self.registers[register],
+            CPUMode::FIQ => return if register >= 8 {self.registers[register + 8]} else {self.registers[register]},
+            CPUMode::IRQ => return if register >= 13 {self.registers[register + 10]} else {self.registers[register]},
+            CPUMode::Supervisor => return if register >= 13 {self.registers[register + 12]} else {self.registers[register]},
+            CPUMode::Abort => return if register >= 13 {self.registers[register + 14]} else {self.registers[register]},
+            CPUMode::Undefined => return if register >= 13 {self.registers[register + 16]} else {self.registers[register]},
         }
     }
 
-    pub fn register_write(&self, register: u32, value: u32) 
+    pub fn register_write(&mut self, register: u32, value: u32) 
     {
         let register: usize = register.try_into().unwrap();
-        if self.mode == CPUMode::User || self.mode == CPUMode::System {
-            self.registers[register] = value;
-        }
-        else if self.mode == CPUMode::FIQ {
-            if register >= 8 {
-                self.registers[register + 8] = value;
-            }
-            else {
-                self.registers[register] = value;
-            }
-        }
-        else if self.mode == CPUMode::IRQ {
-            if register >= 13 {
-                self.registers[register + 10] = value;
-            }
-            else {
-                self.registers[register] = value;
-            }
-        }
-        else if self.mode == CPUMode::Supervisor {
-            if register >= 13 {
-                self.registers[register + 12] = value;
-            }
-            else {
-                self.registers[register] = value;
-            }
-        }
-        else if self.mode == CPUMode::Abort {
-            if register >= 13 {
-                self.registers[register] + 14 = value;
-            }
-            else {
-                self.registers[register] = value;
-            }
-        }
-        else {
-            if register >= 13 {
-                self.registers[register + 16] = value;
-            }
-            else {
-                self.registers[register] = value;
-            }
+        match self.get_mode() {
+            CPUMode::User | CPUMode::System => self.registers[register] = value,
+            CPUMode::FIQ => if register >= 8 {self.registers[register + 8] = value} else {self.registers[register] = value},
+            CPUMode::IRQ => if register >= 13 {self.registers[register + 10] = value} else {self.registers[register] = value},
+            CPUMode::Supervisor => if register >= 13 {self.registers[register + 12] = value} else {self.registers[register] = value},
+            CPUMode::Abort => if register >= 13 {self.registers[register + 14] = value} else {self.registers[register] = value},
+            CPUMode::Undefined => if register >= 13 {self.registers[register + 16] = value} else {self.registers[register] = value},
         }
     }
 }

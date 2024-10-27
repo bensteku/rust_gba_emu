@@ -7,6 +7,7 @@ pub mod cartridge;
 pub mod cpu;
 pub mod macros;
 pub mod instructions;
+pub mod util;
 
 fn main() -> Result<(), Box<dyn Error>>
 {
