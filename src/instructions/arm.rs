@@ -1,4 +1,4 @@
-use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks::*, not_implemented};
+use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_32bit::*, not_implemented};
 
 // table for opcodes and their handling functions
 // pattern, mask, handler function
@@ -24,23 +24,25 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 15] = [
         (0x0F000000, 0x0F000000, placeholder_arm),  // software interrupt
     ];
 
-const ARM_DATA_OPCODES: [(u32, ProcFnArm); 16] = [
-        (0x00000000, placeholder_arm),  // AND
-        (0x00000001, placeholder_arm),  // EOR
-        (0x00000002, placeholder_arm),  // SUB
-        (0x00000003, placeholder_arm),  // RSB
-        (0x00000004, placeholder_arm),  // ADD
-        (0x00000005, placeholder_arm),  // ADC
-        (0x00000006, placeholder_arm),  // SBC
-        (0x00000007, placeholder_arm),  // RSC
-        (0x00000008, placeholder_arm),  // TST
-        (0x00000009, placeholder_arm),  // TEQ
-        (0x0000000A, placeholder_arm),  // CMP
-        (0x0000000B, placeholder_arm),  // CMN
-        (0x0000000C, placeholder_arm),  // ORR
-        (0x0000000D, placeholder_arm),  // MOV
-        (0x0000000E, placeholder_arm),  // BIC
-        (0x0000000F, placeholder_arm),  // MVN
+type ALUFnArm = fn(&mut CPU, bool, u32, u32) -> u32;
+// DO NOT CHANGE THE ORDER HERE, IT CORRESPONDS EXACTLY TO THE ACTUAL OP CODES USED BY THE PROCESSOR
+const ARM_DATA_OPS: [ALUFnArm; 16] = [
+        and_op,  // AND
+        eor_op,  // EOR
+        sub_op,  // SUB
+        rsb_op,  // RSB
+        add_op,  // ADD
+        adc_op,  // ADC
+        sbc_op,  // SBC
+        rsc_op,  // RSC
+        tst_op,  // TST
+        teq_op,  // TEQ
+        cmp_op,  // CMP
+        cmn_op,  // CMN
+        orr_op,  // ORR
+        mov_op,  // MOV
+        bic_op,  // BIC
+        mvn_op,  // MVN
 ];
 
 // extra array to check for logical opcodes to handle CSPR flag effects
@@ -55,8 +57,7 @@ const ARM_DATA_OPCODES_LOGICAL: [u32; 8] = [
     0x0000000F,
 ];
 
-type ShiftFnArm = fn(&mut CPU, bool, u32, u32) -> u32;
-const ARM_SHIFT_TYPES: [ShiftFnArm; 4] = [
+const ARM_SHIFT_TYPES: [ALUFnArm; 4] = [
     logical_left_32bit,      // 00: logical left
     logical_right_32bit,     // 01: logical right
     arithmetic_right_32bit,  // 10: arithmetic right
@@ -82,6 +83,10 @@ pub fn process_instruction_arm(cpu: &mut CPU, instruction: u32) {
     }
 }
 
+/*
+    Instruction implementations
+*/
+
 pub fn data_processing(cpu: &mut CPU, instruction: u32) {
     // ARM manual: p. 52
     let i: bool = (instruction & B_25) != 0;
@@ -91,15 +96,19 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
     //let op2: u32 = instruction & B_11_0;
     let opcode: u32 = (instruction & B_24_21) >> 21;
 
+    // resolve first operand
+    let op1 = cpu.register_read(rn);
     // resolve the second operand
-    let mut op2;
+    let op2;
     if i {
         // I flag is set, meaning the second operand is an immediate value
         // procedure: extend the 8 bit value to 32 bit, then rotate by twice the amount in the rotate bits
         let rotate: u32 = (instruction & B_11_8) >> 8;
-        op2 = instruction & B_7_0;
         if rotate != 0 {
-            op2 = rotate_32bit(cpu, s, op2, rotate * 2);
+            op2 = rotate_32bit(cpu, s, instruction & B_7_0, rotate * 2);
+        }
+        else {
+            op2 = instruction & B_7_0;
         }
     }
     else {
@@ -128,6 +137,16 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
         op2 = ARM_SHIFT_TYPES[shift_type as usize](cpu, s, op2_init_value, shift_amount);    
     }
     // now that both operands are known, we can apply the operations onto it
+    let res = ARM_DATA_OPS[opcode as usize](cpu, s, op1, op2);
+    // write result
+    cpu.register_write(rd, res);
+    // if s is set and we write to R15, we need to copy over the SPSR into the CPSR
+    if s && rd == 15 {
+        if cpu.get_mode() == CPUMode::User {
+            panic!("Trying to write into R15 with s bit set while in User mode!")
+        }
+        cpu.register_write(16, cpu.register_read(17));
+    }
 }
 
 pub fn branch_and_exchange(cpu: &mut CPU, instruction: u32) {
@@ -161,6 +180,179 @@ pub fn branch(cpu: &mut CPU, instruction: u32) {
     }
     cpu.registers[R15] += offset;
 }
+
+/*
+    Logical ALU operations
+*/
+
+#[inline]
+fn logical_flag_helper(cpu: &mut CPU, s: bool, res: u32) {
+    if s {
+        if res == 0 {
+            cpu.set_condition_flag(ConditionFlags::Z, true);
+        }
+        else {
+            cpu.set_condition_flag(ConditionFlags::Z, false);
+        }
+        if res & B_31 != 0 {
+            cpu.set_condition_flag(ConditionFlags::N, true);
+        }
+        else {
+            cpu.set_condition_flag(ConditionFlags::N, false);
+        }
+    }
+}
+
+pub fn and_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = op1 & op2;
+    logical_flag_helper(cpu, s, res);
+    return res;
+}
+
+pub fn eor_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = op1 ^ op2;
+    logical_flag_helper(cpu, s, res);
+    return res;
+}
+
+pub fn tst_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = op1 & op2;
+    logical_flag_helper(cpu, true, res);  // s bit always set for tst
+    return 0;  // no write to Rd
+}
+
+pub fn teq_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = op1 ^ op2;
+    logical_flag_helper(cpu, true, res);  // same as above
+    return 0;
+}
+
+pub fn orr_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = op1 | op2;
+    logical_flag_helper(cpu, s, res);
+    return res;
+}
+
+pub fn mov_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    logical_flag_helper(cpu, s, op2);
+    return op2;
+}
+
+pub fn bic_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = op1 & !op2;
+    logical_flag_helper(cpu, s, res);
+    return res;
+}
+
+pub fn mvn_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    logical_flag_helper(cpu, s, !op2);
+    return !op2;
+}
+
+/*
+    Arithmetic ALU operations
+*/
+
+#[inline]
+fn arithmetic_flag_helper(cpu: &mut CPU, s: bool, carry: bool, overflow: bool, res: u32) {
+    if s {
+        // z flag
+        if res != 0 {cpu.set_condition_flag(ConditionFlags::Z, true);} else {cpu.set_condition_flag(ConditionFlags::Z, false);} 
+        // n flag
+        if res & B_31 != 0 {cpu.set_condition_flag(ConditionFlags::N, true);} else {cpu.set_condition_flag(ConditionFlags::N, false);}
+        // c flag
+        if overflow {cpu.set_condition_flag(ConditionFlags::V, true);} else {cpu.set_condition_flag(ConditionFlags::V, false);}
+        // c flag
+        if carry {cpu.set_condition_flag(ConditionFlags::C, true);} else {cpu.set_condition_flag(ConditionFlags::C, false);}
+    }
+}
+
+pub fn sub_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let (res, carry) = op1.overflowing_sub(op2);
+    let op1_sign = (op1 & B_31) != 0;
+    let op2_sign = (op2 & B_31) != 0;
+    let res_sign = (res & B_31) != 0;
+    let overflow = (op1_sign == op2_sign) && (op1_sign != res_sign);
+    arithmetic_flag_helper(cpu, s, carry, overflow, res);
+    return res;
+}
+
+pub fn rsb_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let (res, carry) = op2.overflowing_sub(op1);
+    let op1_sign = (op1 & B_31) != 0;
+    let op2_sign = (op2 & B_31) != 0;
+    let res_sign = (res & B_31) != 0;
+    let overflow = (op1_sign == op2_sign) && (op1_sign != res_sign);
+    arithmetic_flag_helper(cpu, s, carry, overflow, res);
+    return res;
+}
+
+pub fn add_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let (res, carry) = op1.overflowing_add(op2);
+    let op1_sign = (op1 & B_31) != 0;
+    let op2_sign = (op2 & B_31) != 0;
+    let res_sign = (res & B_31) != 0;
+    let overflow = (op1_sign == op2_sign) && (op1_sign != res_sign);
+    arithmetic_flag_helper(cpu, s, carry, overflow, res);
+    return res;
+}
+
+pub fn adc_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let (mut res, carry) = op1.overflowing_add(op2);
+    res += if cpu.get_condition_flag(ConditionFlags::C) {1} else {0};
+    let op1_sign = (op1 & B_31) != 0;
+    let op2_sign = (op2 & B_31) != 0;
+    let res_sign = (res & B_31) != 0;
+    let overflow = (op1_sign == op2_sign) && (op1_sign != res_sign);
+    arithmetic_flag_helper(cpu, s, carry, overflow, res);
+    return res;
+}
+
+pub fn sbc_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let (mut res, carry) = op1.overflowing_sub(op2);
+    res += if cpu.get_condition_flag(ConditionFlags::C) {1} else {0} - 1;
+    let op1_sign = (op1 & B_31) != 0;
+    let op2_sign = (op2 & B_31) != 0;
+    let res_sign = (res & B_31) != 0;
+    let overflow = (op1_sign == op2_sign) && (op1_sign != res_sign);
+    arithmetic_flag_helper(cpu, s, carry, overflow, res);
+    return res;
+}
+
+pub fn rsc_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let (mut res, carry) = op2.overflowing_sub(op1);
+    res += if cpu.get_condition_flag(ConditionFlags::C) {1} else {0} - 1;
+    let op1_sign = (op1 & B_31) != 0;
+    let op2_sign = (op2 & B_31) != 0;
+    let res_sign = (res & B_31) != 0;
+    let overflow = (op1_sign == op2_sign) && (op1_sign != res_sign);
+    arithmetic_flag_helper(cpu, s, carry, overflow, res);
+    return res;
+}
+
+pub fn cmp_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let (res, carry) = op1.overflowing_sub(op2);
+    let op1_sign = (op1 & B_31) != 0;
+    let op2_sign = (op2 & B_31) != 0;
+    let res_sign = (res & B_31) != 0;
+    let overflow = (op1_sign == op2_sign) && (op1_sign != res_sign);
+    arithmetic_flag_helper(cpu, true, carry, overflow, res);
+    return 0;
+}
+
+pub fn cmn_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let (res, carry) = op1.overflowing_add(op2);
+    let op1_sign = (op1 & B_31) != 0;
+    let op2_sign = (op2 & B_31) != 0;
+    let res_sign = (res & B_31) != 0;
+    let overflow = (op1_sign == op2_sign) && (op1_sign != res_sign);
+    arithmetic_flag_helper(cpu, true, carry, overflow, res);
+    return 0;
+}
+
+/*
+    Barrel Shifter Functions
+*/
 
 pub fn rotate_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
     // rotates a 32 bit binary value to the right
