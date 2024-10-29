@@ -6,10 +6,13 @@ type ProcFnArm = fn(&mut CPU, u32);
 pub fn placeholder_arm(cpu: &mut CPU, opcode: u32) {
     not_implemented!();
 }
-const ARM_OPCODES: [(u32, u32, ProcFnArm); 15] = [
+const ARM_OPCODES: [(u32, u32, ProcFnArm); 18] = [
         (0x00000000, 0x0C000000, data_processing),  // data processing
-        (0x00000090, 0x0FC000F0, placeholder_arm),  // multiply
-        (0x00800090, 0x0F8000F0, placeholder_arm),  // multiply long
+        (0x010F0000, 0x0FBF0FFF, mrs),  // MRS
+        (0x0129F000, 0x0FBFFFF0, msr_full),  // MSR
+        (0x0128F000, 0x0DBFF000, msr_flags),  // MSR (flag bits only)
+        (0x00000090, 0x0FC000F0, multiply),  // multiply
+        (0x00800090, 0x0F8000F0, multiply_long),  // multiply long
         (0x01000090, 0x0FB00FF0, placeholder_arm),  // single data swap
         (0x013FFF10, 0x0FFFFFF0, branch_and_exchange),  // branch and exchange
         (0x00000090, 0x0E400F90, placeholder_arm),  // halfword data transfer: register offset
@@ -93,7 +96,6 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
     let s: bool = (instruction & B_20) != 0;
     let rn: u32 = (instruction & B_19_16) >> 16;
     let rd: u32 = (instruction & B_15_12) >> 12;
-    //let op2: u32 = instruction & B_11_0;
     let opcode: u32 = (instruction & B_24_21) >> 21;
 
     // resolve first operand
@@ -149,6 +151,68 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
     }
 }
 
+pub fn mrs(cpu: &mut CPU, instruction: u32) {
+    // ARM manual p. 61
+    let rd = (instruction & B_15_12) >> 12;
+    // if bit is set SPSR, else CPSR
+    let source_psr;
+    if (instruction & B_22) != 0 {
+        source_psr = 17;
+        if cpu.get_mode() == CPUMode::User {
+            panic!("Access to SPSR in User mode!")
+        }
+    } 
+    else {
+        source_psr = 16;
+    }
+    cpu.register_write(rd, cpu.register_read(source_psr));
+}
+
+pub fn msr_full(cpu: &mut CPU, instruction: u32) {
+    // ARM manual p. 61
+    let rm = instruction & B_3_0;
+    let dest_psr;
+    if (instruction & B_22) != 0 {
+        dest_psr = 17;
+        if cpu.get_mode() == CPUMode::User {
+            panic!("Access to SPSR in User mode!")
+        }
+    } 
+    else {
+        dest_psr = 16;
+    }
+    cpu.register_write(dest_psr, cpu.register_read(rm));
+}
+
+pub fn msr_flags(cpu: &mut CPU, instruction: u32) {
+    // ARM manual p. 61
+    let i = (instruction & B_25) != 0;
+    let op;
+    if i {
+        let rotate = (instruction & B_11_8) >> 8;
+        let immediate = instruction & B_7_0;
+        op = rotate_32bit(cpu, false, immediate, rotate);
+    }
+    else {
+        op = cpu.register_read(instruction & B_3_0);
+    }
+    let dest_psr;
+    if (instruction & B_22) != 0 {
+        dest_psr = 17;
+        if cpu.get_mode() == CPUMode::User {
+            panic!("Access to SPSR in User mode!")
+        }
+    } 
+    else {
+        dest_psr = 16;
+    }
+    // for this method, only the top four bits are written, i.e. the flag bits
+    //      get current psr and null top four bits
+    let nulled_psr = cpu.register_read(dest_psr) & 0x0FFFFFFF;
+    //      or with top four bits of new value and write to destination
+    cpu.register_write(dest_psr, nulled_psr | (op & 0xF000000) );
+}
+
 pub fn branch_and_exchange(cpu: &mut CPU, instruction: u32) {
     // ARM manual: p. 48
     // handle registers in other CPU modes
@@ -179,6 +243,106 @@ pub fn branch(cpu: &mut CPU, instruction: u32) {
         offset = offset | 0x00000000;
     }
     cpu.registers[R15] += offset;
+}
+
+pub fn multiply(cpu: &mut CPU, instruction: u32) {
+    // ARM manual p. 65
+    let accumulate = (instruction & B_21) != 0;
+    let s = (instruction & B_20) != 0;
+
+    let rd = (instruction & B_19_16) >> 16;
+    let rn = (instruction & B_15_12) >> 12;
+    let rs = (instruction & B_11_8) >> 8;
+    let rm = instruction & B_3_0;
+
+    // operand restrictions
+    if rd == rm {
+        panic!("Multiply operand Rd ({}) must not be the same as operand Rm ({})!", rd, rm);
+    }
+    else if rd == 15 || rm == 15 || rs == 15 || rn == 15 {
+        panic!("Register R15 must not be used in multiply operations!")
+    }
+
+    let res;
+    if accumulate {
+        res = cpu.register_read(rm).wrapping_mul(cpu.register_read(rs)).wrapping_add(cpu.register_read(rn));
+    }
+    else {
+        res = cpu.register_read(rm).wrapping_mul(cpu.register_read(rs));
+    }
+
+    logical_flag_helper(cpu, s, res);
+    cpu.register_write(rd, res);
+}
+
+pub fn multiply_long(cpu: &mut CPU, instruction: u32) {
+    // ARM manual p. 67
+    let unsigned = (instruction & B_22) != 0;
+    let accumulate = (instruction & B_21) != 0;
+    let s = (instruction & B_20) != 0;
+
+    let rd_hi = (instruction & B_19_16) >> 16;
+    let rd_lo = (instruction & B_15_12) >> 12;
+    let rs = (instruction & B_11_8) >> 8;
+    let rm = instruction & B_3_0;
+
+    // operand restrictions
+    if rd_hi == rd_lo || rd_hi == rm || rd_lo == rm {
+        panic!("Multiply long operands Rd_hi ({}), Rd_lo ({}) and Rm ({}) must all be distinct from each other!", rd_hi, rd_lo, rm);
+    }
+    else if rd_hi == 15 || rd_lo == 15 || rs == 15 || rm == 15 {
+        panic!("Register R15 must not be used in multiply long operations!")
+    }
+
+    let res_hi;
+    let res_lo;
+    if accumulate {
+        if unsigned {
+            let prod = (cpu.register_read(rm) as u64) * (cpu.register_read(rs) as u64);
+            let add = (cpu.register_read(rd_hi) as u64) << 32 + (cpu.register_read(rd_lo) as u64);
+            let prod1 = prod + add;
+            res_lo = prod1 as u32;
+            res_hi = (prod1 >> 32) as u32;
+        }
+        else {
+            let prod = (cpu.register_read(rm) as i64) * (cpu.register_read(rs) as i64);
+            let add = (cpu.register_read(rd_hi) as i64) << 32 + (cpu.register_read(rd_lo) as i64);
+            let prod1 = prod + add;
+            res_lo = prod1 as u32;
+            res_hi = (prod1 >> 32) as u32;
+        }
+    }
+    else {
+        if unsigned {
+            let prod = (cpu.register_read(rm) as u64) * (cpu.register_read(rs) as u64);
+            res_lo = prod as u32;
+            res_hi = (prod >> 32) as u32;
+        }
+        else {
+            let prod = (cpu.register_read(rm) as i64) * (cpu.register_read(rs) as i64);
+            res_lo = prod as u32;
+            res_hi = (prod >> 32) as u32;
+        }
+    }
+
+    if s {
+        if res_lo == 0 && res_hi == 0 {
+            cpu.set_condition_flag(ConditionFlags::Z, true);
+        }
+        else {
+            cpu.set_condition_flag(ConditionFlags::Z, false);
+        }
+        if res_hi & B_31 != 0 {
+            cpu.set_condition_flag(ConditionFlags::N, true);
+        }
+        else {
+            cpu.set_condition_flag(ConditionFlags::N, false);
+        }
+    }
+
+    cpu.register_write(rd_hi, res_hi);
+    cpu.register_write(rd_lo, res_lo);
+
 }
 
 /*
@@ -366,6 +530,7 @@ pub fn rotate_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
     // amount 0 encodes rotate right extended:
     // carry out is bit 0 of the input,
     // output is created by rotating input once, then replacing the highest bit with the C flag
+    let amount = amount % 32;
     if amount == 0 {
         carry_out = value & B_0;
         if cpu.get_condition_flag(ConditionFlags::C) {
@@ -381,9 +546,8 @@ pub fn rotate_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -> u32 {
         result = value;
     }
     else {
-        let rotate = amount % 32;
-        carry_out = (value >> rotate - 1) & B_0;
-        result = (value >> rotate) | (value << (32 - rotate));
+        carry_out = (value >> amount - 1) & B_0;
+        result = (value >> amount) | (value << (32 - amount));
     }
     
     if s {
