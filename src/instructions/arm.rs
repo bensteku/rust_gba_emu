@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_32bit::*, not_implemented};
 
 // table for opcodes and their handling functions
@@ -120,6 +122,9 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
         let op2_init_address = instruction & B_3_0;
         let op2_init_value = cpu.register_read(op2_init_address);
 
+        let shift_amount  = get_shift_amount(cpu, instruction);
+        // this is now wrapped in the helper function in the line as the same procedure is used with other instructions as well
+        /*
         // the shift amount can be an immediate value or loaded in from a register
         let bit4: u32 = instruction & B_4;
         let shift_amount: u32;
@@ -133,6 +138,7 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
            // in this case the amount is determined from the instruction
            shift_amount = (instruction & B_11_7) >> 7; 
         }
+        */
         let shift_type: u32 = (instruction & B_6_5) >> 5;
         // note: we run the shifts even if the shift amount turns out to be 0 such that the carry flags get affected correctly
         // even if nothing actually happens to the operand value
@@ -343,6 +349,64 @@ pub fn multiply_long(cpu: &mut CPU, instruction: u32) {
     cpu.register_write(rd_hi, res_hi);
     cpu.register_write(rd_lo, res_lo);
 
+}
+
+pub fn single_data_transfer(cpu: &mut CPU, instruction: u32) {
+    // ARM manual p. 70
+    let i = (instruction & B_25) != 0;
+    let p = (instruction & B_24) != 0;
+    let u = (instruction & B_23) != 0;
+    let b = (instruction & B_22) != 0;
+    let w = (instruction & B_21) != 0;
+    let l = (instruction & B_20) != 0;
+
+    let rn = (instruction & B_19_16) >> 16;
+    let rd = (instruction & B_15_12) >> 12;
+    let base_address = cpu.register_read(rn);
+    let s_d_address = cpu.register_read(rd);
+    
+    // determine offset
+    let offset;
+    if i {
+        let rm = instruction & B_3_0;
+        let offset_init_value = cpu.register_read(rm);
+
+        let shift_amount = get_shift_amount(cpu, instruction);
+        let shift_type: u32 = (instruction & B_6_5) >> 5;
+        offset = ARM_SHIFT_TYPES[shift_type as usize](cpu, false, offset_init_value, shift_amount);
+    }
+    else {
+        offset = instruction & B_11_0;
+    }
+    // calculate offset adress
+    let offset_address;
+    if u {
+        offset_address = base_address + offset;
+    }
+    else {
+        offset_address = base_address - offset;
+    }
+
+
+}
+
+// little helper to recycle code for shift by register/immediate shift
+#[inline]
+fn get_shift_amount(cpu: &mut CPU, instruction: u32) -> u32 {
+    // the shift amount can be an immediate value or loaded in from a register
+    let bit4: u32 = instruction & B_4;
+    let shift_amount: u32;
+    if bit4 != 0 {
+        // in this case, we load in the shift amount from the bottom byte of the register mentioned in bits 11 to 8
+        let shift_register_address: u32 = (instruction & B_11_8) >> 8;
+        let shift_register_value: u32 = cpu.register_read(shift_register_address.try_into().unwrap());
+        shift_amount = shift_register_value & B_7_0;
+    }
+    else {
+       // in this case the amount is determined from the instruction
+       shift_amount = (instruction & B_11_7) >> 7; 
+    }
+    return shift_amount;
 }
 
 /*

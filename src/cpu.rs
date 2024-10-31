@@ -112,9 +112,18 @@ pub enum ConditionFlags {
 }
 
 // emulation of a ARMT7DMI CPU
+// memory is included here, this mirrors the way it was manufactured in real life where the RAM is integrated into the CPU chip
 pub struct CPU {
     cycles: u128,
     pub registers: [u32; 37],
+    // memory
+    pub bios: [u32; 4096],  // 16 KB in real life
+    pub board_ram: [u32; 65536],  // 256 KB
+    pub chip_ram: [u32; 8192],  // 32 KB
+    pub palette_ram: [u32; 256],  // 1 KB
+    pub video_ram: [u32; 24576],  // 96 KB
+    pub obj_att: [u32; 256],  // 1 KB
+    pub game_pak_ram: [u32; 16384],  // 64 KB
 }
 
 impl CPU {
@@ -123,7 +132,14 @@ impl CPU {
         init[Registers::CPSR] = 16; // 16 == binary for user mode
         CPU {
             cycles: 0,
-            registers: init
+            registers: init,
+            bios: [0; 4096],  // TODO: load in bios into this
+            board_ram: [0; 65536],
+            chip_ram: [0; 8192],
+            palette_ram: [0; 256],
+            video_ram: [0; 24576],
+            obj_att: [0; 256],
+            game_pak_ram: [0; 16384],
         }
     }
 
@@ -237,6 +253,90 @@ impl CPU {
 
     pub fn get_all_condition_flags(&self) -> u32 {
         return self.registers[Registers::CPSR] & 0xF0000000;
+    }
+
+    pub fn read_memory(&self, address: u32, word: bool) -> u32 {
+        // reads memory from address in RAM
+        // if word is true, an entire 4 byte section is loaded and returned
+        // if word is false, a single byte is loaded and placed into the lower 8 bits of the return value, with the rest set to 0
+
+        // resolve the given byte address into word address and byte offset
+        let (w_address, w_byte) = (address / 4, address % 4);
+
+        // resolve address for the different areas of memory and get value
+        // going by the memory map on https://problemkaputt.de/gbatek.htm#gbamemorymap 
+        let value: u32;
+        if address >= 0x00000000 && address <= 0x00003FFF {
+            // BIOS
+            value = self.bios[w_address as usize];
+        }
+        else if address >= 0x02000000 && address <= 0x0203FFFF {
+            // board RAM
+            value = self.board_ram[(w_address - 0x00800000) as usize];
+        }
+        else if address >= 0x03000000 && address <= 0x03007FFF {
+            // chip RAM
+            value = self.chip_ram[(w_address - 0x00C00000) as usize];
+        }
+        else if address >= 0x04000000 && address <= 0x040003FE {
+            // IO registers
+            not_implemented!();
+        }
+        else if address >= 0x05000000 && address <= 0x050003FF {
+            // BG/OBJ palette
+            value = self.palette_ram[(w_address - 0x01400000) as usize];
+        }
+        else if address >= 0x06000000 && address <= 0x06017FFF {
+            // VRAM
+            value = self.video_ram[(w_address - 0x01800000) as usize];
+        }
+        else if address >= 0x07000000 && address <= 0x070003FF {
+            // OBJ attributes
+            value = self.obj_att[(w_address - 0x01C00000) as usize];
+        }
+        else if address >= 0x08000000 && address <= 0x09FFFFFF {
+            // Game Pak wait state 0
+            not_implemented!();
+        }
+        else if address >= 0x0A000000 && address <= 0x0BFFFFFF {
+            // Game Pak wait state 1
+            not_implemented!();
+        }
+        else if address >= 0x0C000000 && address <= 0x0DFFFFFF {
+            // Game Pak wait state 2
+            not_implemented!();
+        }
+        else if address >= 0x0E000000 && address <= 0x0E00FFFF {
+            // Game Pak SRAM
+            value = self.game_pak_ram[(w_address - 0x03800000) as usize];
+        }
+        else {
+            panic!("Read attempt in unused area of memory! Address: {:X}", address);
+        }
+
+        // in case we only want to load a byte, write it into the first 8 bits of the output
+        if !word {
+            // shift the desired byte to the lowest position
+            let shifted_value = value >> (8 * w_byte);
+            // set the rest to zero and return
+            return shifted_value & 0x000000FF;
+        }
+        else {
+            // check if the desired address is word aligned
+            if w_byte == 0 {
+                // in this case we can simply return the value unchanged
+                return value;
+            }
+            else {
+                // otherwise we need to rotate the value such that the addressed byte ends up at position 0 to 7 in the return value
+            }
+        }
+        return 0;
+
+    }
+
+    pub fn write_memory(address: u32, word: bool, value: u32) {
+
     }
 
     // utilities to alias the first 16 registers depending on the mode the CPU is currently in

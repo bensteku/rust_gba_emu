@@ -21,6 +21,7 @@ pub const B_7:     u32 = 0x00000040;  // bit 7
 pub const B_6_5:   u32 = 0x00000060;  // bits 6 and 5
 pub const B_11_7:  u32 = 0x00000780;  // bits 11 to 7
 pub const B_11_8:  u32 = 0x00000700;  // bits 11 to 8
+pub const B_11_4:  u32 = 0x00000FF0;
 pub const B_7_0:   u32 = 0x000000FF;  // bits 7 to 0
 pub const B_31:    u32 = 0x80000000;  // bit 31
 pub const B_31_28: u32 = 0xF0000000;  // bits 31 to 28
