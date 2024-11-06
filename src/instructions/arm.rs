@@ -19,7 +19,7 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 18] = [
         (0x013FFF10, 0x0FFFFFF0, branch_and_exchange),  // branch and exchange
         (0x00000090, 0x0E400F90, placeholder_arm),  // halfword data transfer: register offset
         (0x00400090, 0x0E400090, placeholder_arm),  // halfword data transfer: immediate offset
-        (0x04000000, 0x0C000000, placeholder_arm),  // single data transfer
+        (0x04000000, 0x0C000000, single_data_transfer),  // single data transfer
         (0x06000010, 0x0E000010, placeholder_arm),  // undefined
         (0x08000000, 0x0E000000, placeholder_arm),  // block data transfer
         (0x0A000000, 0x0E000000, placeholder_arm),  // branch
@@ -363,12 +363,19 @@ pub fn single_data_transfer(cpu: &mut CPU, instruction: u32) {
     let rn = (instruction & B_19_16) >> 16;
     let rd = (instruction & B_15_12) >> 12;
     let base_address = cpu.register_read(rn);
-    let s_d_address = cpu.register_read(rd);
     
+    // guards against using R15
+    if rn == 15 && w {
+        panic!("Must not use R15 with write-back in Single Data Transfer instruction!")
+    }
+
     // determine offset
     let offset;
     if i {
         let rm = instruction & B_3_0;
+        if rm == 15 {
+            panic!("Rm must not be R15 in Single Data Transfer instruction!")
+        }
         let offset_init_value = cpu.register_read(rm);
 
         let shift_amount = get_shift_amount(cpu, instruction);
@@ -386,9 +393,25 @@ pub fn single_data_transfer(cpu: &mut CPU, instruction: u32) {
     else {
         offset_address = base_address - offset;
     }
-
+    // write back offset address if so desired
+    // TODO: look at the w bit in privileged mode
+    if w || !p {
+        cpu.register_write(rn, offset_address);
+    }
+    
+    // perform memory transfer
+    if l {
+        let load_value = cpu.memory_read(offset_address, !b);
+        cpu.register_write(rd, load_value);
+    }
+    else {
+        let store_value = cpu.register_read(rd);
+        cpu.memory_write(offset_address, !b, store_value);
+    }
 
 }
+
+p
 
 // little helper to recycle code for shift by register/immediate shift
 #[inline]

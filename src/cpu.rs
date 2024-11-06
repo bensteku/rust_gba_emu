@@ -1,4 +1,5 @@
 use crate::{instructions::arm::process_instruction_arm, not_implemented, instructions::masks_32bit::*, util::*};
+use std::intrinsics::rotate_right;
 use std::ops::Index;
 use std::ops::IndexMut;
 
@@ -255,7 +256,7 @@ impl CPU {
         return self.registers[Registers::CPSR] & 0xF0000000;
     }
 
-    pub fn read_memory(&self, address: u32, word: bool) -> u32 {
+    pub fn memory_read(&self, address: u32, word: bool) -> u32 {
         // reads memory from address in RAM
         // if word is true, an entire 4 byte section is loaded and returned
         // if word is false, a single byte is loaded and placed into the lower 8 bits of the return value, with the rest set to 0
@@ -311,7 +312,7 @@ impl CPU {
             value = self.game_pak_ram[(w_address - 0x03800000) as usize];
         }
         else {
-            panic!("Read attempt in unused area of memory! Address: {:X}", address);
+            panic!("Read attempt in unused area of memory! Address: {:x}", address);
         }
 
         // in case we only want to load a byte, write it into the first 8 bits of the output
@@ -329,14 +330,85 @@ impl CPU {
             }
             else {
                 // otherwise we need to rotate the value such that the addressed byte ends up at position 0 to 7 in the return value
+                // note: in contrast to half word loads, there is no masking or sign extend here
+                return value.rotate_left(8 * w_byte);  // using the inbuilt Rust rotate here because there are no side effects on the processor flags
             }
         }
-        return 0;
-
     }
 
-    pub fn write_memory(address: u32, word: bool, value: u32) {
+    pub fn memory_write(&mut self, address: u32, word: bool, value: u32) {
+        // writes to memory address in RAM
+        // if word is true, the entire value parameter is written into the target address
+        // in this case, address must be word-aligned
+        // if word is false, a single byte, taken from the lowest 8 bits in the value parameter, is written to the desired address
 
+        // resolve the given byte address into word address and byte offset
+        let (w_address, w_byte) = (address / 4, address % 4);
+        // determine data to write and mask
+        let write_data: u32;
+        let write_mask: u32;
+        if word {
+            if w_byte != 0 {
+                panic!("Write of word into non-word-aligned address {:x}!", address);
+            }
+            write_data = value;
+            write_mask = 0x0;
+        }
+        else {
+            write_data = value << (8 * w_byte);  // shift data into correct position
+            write_mask = !(0x000000FF << (8 * w_byte));  // create mask in correct position 
+        }
+
+        // write value into memory
+        // get old data, null out the sections to overwrite, or with new value
+        // going by the memory map on https://problemkaputt.de/gbatek.htm#gbamemorymap 
+        if address >= 0x00000000 && address <= 0x00003FFF {
+            // BIOS
+            self.bios[w_address as usize] = (self.bios[w_address as usize] & write_mask) | write_data;
+        }
+        else if address >= 0x02000000 && address <= 0x0203FFFF {
+            // board RAM
+            self.board_ram[w_address as usize] = (self.board_ram[w_address as usize] & write_mask) | write_data;
+        }
+        else if address >= 0x03000000 && address <= 0x03007FFF {
+            // chip RAM
+            self.chip_ram[w_address as usize] = (self.chip_ram[w_address as usize] & write_mask) | write_data;
+        }
+        else if address >= 0x04000000 && address <= 0x040003FE {
+            // IO registers
+            not_implemented!();
+        }
+        else if address >= 0x05000000 && address <= 0x050003FF {
+            // BG/OBJ palette
+            self.palette_ram[w_address as usize] = (self.palette_ram[w_address as usize] & write_mask) | write_data;
+        }
+        else if address >= 0x06000000 && address <= 0x06017FFF {
+            // VRAM
+            self.video_ram[w_address as usize] = (self.video_ram[w_address as usize] & write_mask) | write_data;
+        }
+        else if address >= 0x07000000 && address <= 0x070003FF {
+            // OBJ attributes
+            self.obj_att[w_address as usize] = (self.obj_att[w_address as usize] & write_mask) | write_data;
+        }
+        else if address >= 0x08000000 && address <= 0x09FFFFFF {
+            // Game Pak wait state 0
+            not_implemented!();
+        }
+        else if address >= 0x0A000000 && address <= 0x0BFFFFFF {
+            // Game Pak wait state 1
+            not_implemented!();
+        }
+        else if address >= 0x0C000000 && address <= 0x0DFFFFFF {
+            // Game Pak wait state 2
+            not_implemented!();
+        }
+        else if address >= 0x0E000000 && address <= 0x0E00FFFF {
+            // Game Pak SRAM
+            self.game_pak_ram[w_address as usize] = (self.game_pak_ram[w_address as usize] & write_mask) | write_data;
+        }
+        else {
+            panic!("Write attempt in unused area of memory! Address: {:x}", address);
+        }
     }
 
     // utilities to alias the first 16 registers depending on the mode the CPU is currently in
