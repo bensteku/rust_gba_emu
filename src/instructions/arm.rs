@@ -17,7 +17,7 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 18] = [
         (0x00800090, 0x0F8000F0, multiply_long),  // multiply long
         (0x01000090, 0x0FB00FF0, placeholder_arm),  // single data swap
         (0x013FFF10, 0x0FFFFFF0, branch_and_exchange),  // branch and exchange
-        (0x00000090, 0x0E400F90, placeholder_arm),  // halfword data transfer: register offset
+        (0x00000090, 0x0E400F90, halfword_signed_data_transfer_register_offset),  // halfword data transfer: register offset
         (0x00400090, 0x0E400090, placeholder_arm),  // halfword data transfer: immediate offset
         (0x04000000, 0x0C000000, single_data_transfer),  // single data transfer
         (0x06000010, 0x0E000010, placeholder_arm),  // undefined
@@ -228,7 +228,7 @@ pub fn branch_and_exchange(cpu: &mut CPU, instruction: u32) {
         println!("[WARNING] Branch and exchange instruction into the program counter register (R15), undefined behavior!")
     }
     cpu.registers[R15] = cpu.register_read(rn);
-    cpu.t = t_bit != 0;
+    cpu.set_state(t_bit != 0);
 }
 
 pub fn branch(cpu: &mut CPU, instruction: u32) {
@@ -411,7 +411,50 @@ pub fn single_data_transfer(cpu: &mut CPU, instruction: u32) {
 
 }
 
-p
+pub fn halfword_signed_data_transfer_register_offset(cpu: &mut CPU, instruction: u32) {
+    let l = (instruction & B_20) != 0;
+    let w = (instruction & B_21) != 0;
+    let u = (instruction & B_23) != 0;
+    let p = (instruction & B_24) != 0;
+    let s = (instruction & B_6) != 0;
+    let h = (instruction & B_5) != 0;
+
+    if s && l {
+        panic!("In halfword/signed data transfer instruction {:x} the S and L bits are both set!", instruction);
+    }
+    if !s && !h {
+        panic!("Swap demanded in halfword/signed data transfer instruction {:x}!", instruction)
+    }
+
+    let rn = (instruction & B_19_16) >> 16;
+    let rd = (instruction & B_15_12) >> 12;
+    let rm = instruction & B_3_0;
+    let base_address = cpu.register_read(rn);
+
+    // determine offset
+    let offset = cpu.register_read(rm);
+    // calculate offset address
+    let offset_address;
+    if u {
+        offset_address = base_address + offset;
+    }
+    else {
+        offset_address = base_address - offset;
+    }
+    // write back offset address if so desired
+    if w || !p {
+        cpu.register_write(rn, offset_address);
+    }
+    // deal with the different cases for s and h
+    if s {
+
+    }
+    else {
+        // here we don't need to ask for h, since we've eliminated that case with the if panic above
+
+    }
+
+}
 
 // little helper to recycle code for shift by register/immediate shift
 #[inline]
@@ -466,13 +509,13 @@ pub fn eor_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
     return res;
 }
 
-pub fn tst_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+pub fn tst_op(cpu: &mut CPU, _s: bool, op1: u32, op2: u32) -> u32 {
     let res = op1 & op2;
     logical_flag_helper(cpu, true, res);  // s bit always set for tst
     return 0;  // no write to Rd
 }
 
-pub fn teq_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+pub fn teq_op(cpu: &mut CPU, _s: bool, op1: u32, op2: u32) -> u32 {
     let res = op1 ^ op2;
     logical_flag_helper(cpu, true, res);  // same as above
     return 0;
@@ -484,7 +527,7 @@ pub fn orr_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
     return res;
 }
 
-pub fn mov_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+pub fn mov_op(cpu: &mut CPU, s: bool, _op1: u32, op2: u32) -> u32 {
     logical_flag_helper(cpu, s, op2);
     return op2;
 }
@@ -495,7 +538,7 @@ pub fn bic_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
     return res;
 }
 
-pub fn mvn_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+pub fn mvn_op(cpu: &mut CPU, s: bool, _op1: u32, op2: u32) -> u32 {
     logical_flag_helper(cpu, s, !op2);
     return !op2;
 }
@@ -581,7 +624,7 @@ pub fn rsc_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
     return res;
 }
 
-pub fn cmp_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+pub fn cmp_op(cpu: &mut CPU, _s: bool, op1: u32, op2: u32) -> u32 {
     let (res, carry) = op1.overflowing_sub(op2);
     let op1_sign = (op1 & B_31) != 0;
     let op2_sign = (op2 & B_31) != 0;
@@ -591,7 +634,7 @@ pub fn cmp_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
     return 0;
 }
 
-pub fn cmn_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+pub fn cmn_op(cpu: &mut CPU, _s: bool, op1: u32, op2: u32) -> u32 {
     let (res, carry) = op1.overflowing_add(op2);
     let op1_sign = (op1 & B_31) != 0;
     let op2_sign = (op2 & B_31) != 0;

@@ -1,5 +1,4 @@
 use crate::{instructions::arm::process_instruction_arm, not_implemented, instructions::masks_32bit::*, util::*};
-use std::intrinsics::rotate_right;
 use std::ops::Index;
 use std::ops::IndexMut;
 
@@ -263,6 +262,8 @@ impl CPU {
 
         // resolve the given byte address into word address and byte offset
         let (w_address, w_byte) = (address / 4, address % 4);
+        // put out warning in console
+
 
         // resolve address for the different areas of memory and get value
         // going by the memory map on https://problemkaputt.de/gbatek.htm#gbamemorymap 

@@ -3,6 +3,9 @@ use std::error::Error;
 use cartridge::Cartridge;
 use cpu::CPU;
 
+#[cfg(feature = "logging")]
+use log::{info, warn};
+
 pub mod cartridge;
 pub mod cpu;
 pub mod macros;
@@ -11,6 +14,9 @@ pub mod util;
 
 fn main() -> Result<(), Box<dyn Error>>
 {
+    #[cfg(feature = "logging")]
+    info!("Emulator start.");
+
     let args: Vec<String> = env::args().collect();
     let filename = args[1].clone();
     let cart = Cartridge::new(filename)?;
@@ -24,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>>
     let test2: u32 = 0b00001000111100101000000001101001;
 
     //cpu.execute_arm(test1);
-    cpu.execute_arm(test2);
+    //cpu.execute_arm(test2);
 
     Ok(())
 }
