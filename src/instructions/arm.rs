@@ -401,12 +401,12 @@ pub fn single_data_transfer(cpu: &mut CPU, instruction: u32) {
     
     // perform memory transfer
     if l {
-        let load_value = cpu.memory_read(offset_address, !b);
+        let load_value = cpu.memory_read(offset_address, if b {0} else {2});
         cpu.register_write(rd, load_value);
     }
     else {
         let store_value = cpu.register_read(rd);
-        cpu.memory_write(offset_address, !b, store_value);
+        cpu.memory_write(offset_address, if b {0} else {2}, store_value);
     }
 
 }
@@ -445,13 +445,22 @@ pub fn halfword_signed_data_transfer_register_offset(cpu: &mut CPU, instruction:
     if w || !p {
         cpu.register_write(rn, offset_address);
     }
-    // deal with the different cases for s and h
-    if s {
 
+    // load/store
+    if l {
+        let
     }
     else {
-        // here we don't need to ask for h, since we've eliminated that case with the if panic above
+        let write_data = cpu.register_read(rd);
+        // deal with the different cases for s and h
+        if s {
 
+        }
+        else {
+            // here we don't need to ask for h, since we've eliminated that case with the if panic above
+            // so this is a halfword store here, bottom 16 bits of the register get written into memory
+            cpu.memory_write(offset_address, 1, write_data & B_15_0);
+        }
     }
 
 }

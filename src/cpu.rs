@@ -255,9 +255,11 @@ impl CPU {
         return self.registers[Registers::CPSR] & 0xF0000000;
     }
 
-    pub fn memory_read(&self, address: u32, word: bool) -> u32 {
+    pub fn memory_read(&self, address: u32, r_type: u32) -> u32 {
         // reads memory from address in RAM
-        // if word is true, an entire 4 byte section is loaded and returned
+        // if read_type is 0, a single byte is loaded and placed into the lower 8 bits
+        // if read_type is 1, a halfword is loaded and placed into the lower 16 bits
+        // if read_type is 2, a word is loaded and returend
         // if word is false, a single byte is loaded and placed into the lower 8 bits of the return value, with the rest set to 0
 
         // resolve the given byte address into word address and byte offset
@@ -316,48 +318,62 @@ impl CPU {
             panic!("Read attempt in unused area of memory! Address: {:x}", address);
         }
 
-        // in case we only want to load a byte, write it into the first 8 bits of the output
-        if !word {
-            // shift the desired byte to the lowest position
-            let shifted_value = value >> (8 * w_byte);
-            // set the rest to zero and return
-            return shifted_value & 0x000000FF;
-        }
-        else {
-            // check if the desired address is word aligned
-            if w_byte == 0 {
-                // in this case we can simply return the value unchanged
-                return value;
+        match r_type {
+            0 => {
+                // shift the desired byte to the lowest position
+                let shifted_value = value >> (8 * w_byte);
+                // set the rest to zero and return
+                return shifted_value & 0x000000FF;
+            },
+            1 => {
+                // same as above, just with different mask
+                let shifted_value = value >> (8 * w_byte);
+                return shifted_value & 0x0000FFFF;
             }
-            else {
-                // otherwise we need to rotate the value such that the addressed byte ends up at position 0 to 7 in the return value
+            2 => {
+                // we need to rotate the value such that the addressed byte ends up at position 0 to 7 in the return value
                 // note: in contrast to half word loads, there is no masking or sign extend here
-                return value.rotate_left(8 * w_byte);  // using the inbuilt Rust rotate here because there are no side effects on the processor flags
-            }
+                // using the inbuilt Rust rotate here because there are no side effects on the processor flags
+                return value.rotate_left(8 * w_byte);
+            },
+            _ => panic!("Invalid read type {} in memory read!", r_type)
         }
     }
 
-    pub fn memory_write(&mut self, address: u32, word: bool, value: u32) {
+    pub fn memory_write(&mut self, address: u32, w_type: u32, value: u32) {
         // writes to memory address in RAM
-        // if word is true, the entire value parameter is written into the target address
-        // in this case, address must be word-aligned
-        // if word is false, a single byte, taken from the lowest 8 bits in the value parameter, is written to the desired address
+        // if write type is 0, a byte write is performed
+        // value contains the byte in bits 0 to 7 and otherwise it's 0
+        // if write type is 1, a halfword write is performed
+        // value must contain the two bytes in bits 0 to 8, otherwise it's 0
+        // if write type is 2, a word write is performed
+        // the entire value parameter is written into memory
 
         // resolve the given byte address into word address and byte offset
         let (w_address, w_byte) = (address / 4, address % 4);
         // determine data to write and mask
         let write_data: u32;
         let write_mask: u32;
-        if word {
-            if w_byte != 0 {
-                panic!("Write of word into non-word-aligned address {:x}!", address);
-            }
-            write_data = value;
-            write_mask = 0x0;
-        }
-        else {
-            write_data = value << (8 * w_byte);  // shift data into correct position
-            write_mask = !(0x000000FF << (8 * w_byte));  // create mask in correct position 
+        match w_type {
+            0 => {
+                write_data = value << (8 * w_byte);  // shift data into correct position
+                write_mask = !(0x000000FF << (8 * w_byte));  // create mask in correct position
+            },
+            1 => {
+                if w_byte % 2 != 0 {
+                    panic!("Write of halfword into non-halfword-aligned address {:x}!", address);
+                }
+                write_data = value << (8 * w_byte);
+                write_mask = !(0x0000FFFF << (8 * w_byte));
+            },
+            2 => {
+                if w_byte != 0 {
+                    panic!("Write of word into non-word-aligned address {:x}!", address);
+                }
+                write_data = value;
+                write_mask = 0x0;
+            },
+            _ => panic!("Invalid write mode {} in memory write!", w_type)
         }
 
         // write value into memory
