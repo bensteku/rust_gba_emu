@@ -8,7 +8,7 @@ type ProcFnArm = fn(&mut CPU, u32);
 pub fn placeholder_arm(cpu: &mut CPU, opcode: u32) {
     not_implemented!();
 }
-const ARM_OPCODES: [(u32, u32, ProcFnArm); 18] = [
+const ARM_OPCODES: [(u32, u32, ProcFnArm); 17] = [
         (0x00000000, 0x0C000000, data_processing),  // data processing
         (0x010F0000, 0x0FBF0FFF, mrs),  // MRS
         (0x0129F000, 0x0FBFFFF0, msr_full),  // MSR
@@ -17,8 +17,7 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 18] = [
         (0x00800090, 0x0F8000F0, multiply_long),  // multiply long
         (0x01000090, 0x0FB00FF0, placeholder_arm),  // single data swap
         (0x013FFF10, 0x0FFFFFF0, branch_and_exchange),  // branch and exchange
-        (0x00000090, 0x0E400F90, halfword_signed_data_transfer_register_offset),  // halfword data transfer: register offset
-        (0x00400090, 0x0E400090, placeholder_arm),  // halfword data transfer: immediate offset
+        (0x00000090, 0x0E000090, halfword_signed_data_transfer),  // halfword data transfer
         (0x04000000, 0x0C000000, single_data_transfer),  // single data transfer
         (0x06000010, 0x0E000010, placeholder_arm),  // undefined
         (0x08000000, 0x0E000000, placeholder_arm),  // block data transfer
@@ -411,9 +410,10 @@ pub fn single_data_transfer(cpu: &mut CPU, instruction: u32) {
 
 }
 
-pub fn halfword_signed_data_transfer_register_offset(cpu: &mut CPU, instruction: u32) {
+pub fn halfword_signed_data_transfer(cpu: &mut CPU, instruction: u32) {
     let l = (instruction & B_20) != 0;
     let w = (instruction & B_21) != 0;
+    let i = (instruction & B_22) != 0;
     let u = (instruction & B_23) != 0;
     let p = (instruction & B_24) != 0;
     let s = (instruction & B_6) != 0;
@@ -428,11 +428,23 @@ pub fn halfword_signed_data_transfer_register_offset(cpu: &mut CPU, instruction:
 
     let rn = (instruction & B_19_16) >> 16;
     let rd = (instruction & B_15_12) >> 12;
-    let rm = instruction & B_3_0;
+    
     let base_address = cpu.register_read(rn);
 
     // determine offset
-    let offset = cpu.register_read(rm);
+    let offset;
+    if i {
+        // immediate offset
+        let offset_lower = instruction & B_3_0;
+        let offset_upper = instruction & B_11_8 >> 4;
+        offset = offset_lower + offset_upper;
+    }
+    else {
+        // offset from register
+        let rm = instruction & B_3_0;
+        offset = cpu.register_read(rm);
+    }
+    
     // calculate offset address
     let offset_address;
     if u {
@@ -448,19 +460,37 @@ pub fn halfword_signed_data_transfer_register_offset(cpu: &mut CPU, instruction:
 
     // load/store
     if l {
-        let
-    }
-    else {
-        let write_data = cpu.register_read(rd);
-        // deal with the different cases for s and h
+        let load_data;
         if s {
-
+            if h {
+                // signed halfword load
+                load_data = cpu.memory_read(offset_address, 1);
+                let tmp: u16 = load_data as u16;
+                let tmp: i16 = tmp as i16;
+                let tmp: i32 = tmp as i32;
+                cpu.register_write(rd, tmp as u32);
+            }
+            else {
+                // signed byte load
+                load_data = cpu.memory_read(offset_address, 0);
+                // sign extend to all bits
+                let tmp: u8 = load_data as u8;  // works because memory read places the byte into lower 8 bits
+                let tmp: i8 = tmp as i8;
+                let tmp: i32 = tmp as i32;  // sign extension done automatically by Rust
+                cpu.register_write(rd, tmp as u32);
+            }
         }
         else {
-            // here we don't need to ask for h, since we've eliminated that case with the if panic above
-            // so this is a halfword store here, bottom 16 bits of the register get written into memory
-            cpu.memory_write(offset_address, 1, write_data & B_15_0);
+            // no need to deal with h, would be a swap, that's dealt with separately
+            // top 16 bits have to be set to 0, this is done in the memory read already
+            load_data = cpu.memory_read(offset_address, 1);
+            cpu.register_write(rd, load_data);
         }
+    }
+    else {
+        // here we don't need to ask for h or s, since only halfword stores are possible
+        // if the flags aren't set for that, the function should already have paniced above
+        cpu.memory_write(offset_address, 1, cpu.register_read(rd) & B_15_0);
     }
 
 }

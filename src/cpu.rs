@@ -256,11 +256,13 @@ impl CPU {
     }
 
     pub fn memory_read(&self, address: u32, r_type: u32) -> u32 {
-        // reads memory from address in RAM
-        // if read_type is 0, a single byte is loaded and placed into the lower 8 bits
-        // if read_type is 1, a halfword is loaded and placed into the lower 16 bits
-        // if read_type is 2, a word is loaded and returend
-        // if word is false, a single byte is loaded and placed into the lower 8 bits of the return value, with the rest set to 0
+        /* 
+            reads memory from address in RAM
+            if read_type is 0, a single byte is loaded and placed into the lower 8 bits
+            if read_type is 1, a halfword is loaded and placed into the lower 16 bits
+            if read_type is 2, a word is loaded and returend
+            if word is false, a single byte is loaded and placed into the lower 8 bits of the return value, with the rest set to 0
+        */
 
         // resolve the given byte address into word address and byte offset
         let (w_address, w_byte) = (address / 4, address % 4);
@@ -323,12 +325,12 @@ impl CPU {
                 // shift the desired byte to the lowest position
                 let shifted_value = value >> (8 * w_byte);
                 // set the rest to zero and return
-                return shifted_value & 0x000000FF;
+                return shifted_value & B_15_0;
             },
             1 => {
                 // same as above, just with different mask
                 let shifted_value = value >> (8 * w_byte);
-                return shifted_value & 0x0000FFFF;
+                return shifted_value & B_15_0;
             }
             2 => {
                 // we need to rotate the value such that the addressed byte ends up at position 0 to 7 in the return value
