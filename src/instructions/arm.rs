@@ -1,5 +1,3 @@
-use std::ops::Add;
-
 use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_32bit::*, not_implemented};
 
 // table for opcodes and their handling functions
@@ -15,13 +13,13 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 17] = [
         (0x0128F000, 0x0DBFF000, msr_flags),  // MSR (flag bits only)
         (0x00000090, 0x0FC000F0, multiply),  // multiply
         (0x00800090, 0x0F8000F0, multiply_long),  // multiply long
-        (0x01000090, 0x0FB00FF0, placeholder_arm),  // single data swap
+        (0x01000090, 0x0FB00FF0, single_data_swap),  // single data swap
         (0x013FFF10, 0x0FFFFFF0, branch_and_exchange),  // branch and exchange
         (0x00000090, 0x0E000090, halfword_signed_data_transfer),  // halfword data transfer
         (0x04000000, 0x0C000000, single_data_transfer),  // single data transfer
         (0x06000010, 0x0E000010, placeholder_arm),  // undefined
-        (0x08000000, 0x0E000000, placeholder_arm),  // block data transfer
-        (0x0A000000, 0x0E000000, placeholder_arm),  // branch
+        (0x08000000, 0x0E000000, block_data_transfer),  // block data transfer
+        (0x0A000000, 0x0E000000, branch),  // branch
         (0x0C000000, 0x0E000000, placeholder_arm),  // coprocessor data transfer
         (0x0E000000, 0x0F000000, placeholder_arm),  // coprocessor data operation
         (0x0E000010, 0x0F000010, placeholder_arm),  // coprocessor register transfer
@@ -47,18 +45,6 @@ const ARM_DATA_OPS: [ALUFnArm; 16] = [
         mov_op,  // MOV
         bic_op,  // BIC
         mvn_op,  // MVN
-];
-
-// extra array to check for logical opcodes to handle CSPR flag effects
-const ARM_DATA_OPCODES_LOGICAL: [u32; 8] = [
-    0x00000000,
-    0x00000001,
-    0x00000008,
-    0x00000009,
-    0x0000000C,
-    0x0000000D,
-    0x0000000E,
-    0x0000000F,
 ];
 
 const ARM_SHIFT_TYPES: [ALUFnArm; 4] = [
@@ -493,6 +479,30 @@ pub fn halfword_signed_data_transfer(cpu: &mut CPU, instruction: u32) {
         cpu.memory_write(offset_address, 1, cpu.register_read(rd) & B_15_0);
     }
 
+}
+
+pub fn single_data_swap(cpu: &mut CPU, instruction: u32) {
+    let b = if (instruction & B_22) != 0 {0} else {2};
+
+    let rn = (instruction & B_19_16) >> 16;
+    let rd = (instruction & B_15_12) >> 12;
+    let rm = instruction & B_3_0;
+
+    // R15 block
+    if rn == 15 || rd == 15 || rm == 15 {
+        panic!("Swap with rn {}, rd {}, rm {}, involves R15 which is not allowed.", rn, rd, rm);
+    }
+
+    // read word or byte from base address
+    let memory_read = cpu.memory_read(rn, b);
+    // write swap register into memory
+    cpu.memory_write(rn, b, cpu.register_read(rm));
+    // overwrite swap register
+    cpu.register_write(rd, memory_read);
+}
+
+pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
+    
 }
 
 // little helper to recycle code for shift by register/immediate shift
