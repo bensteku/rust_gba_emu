@@ -1,3 +1,5 @@
+use std::iter;
+
 use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_32bit::*, not_implemented};
 
 // table for opcodes and their handling functions
@@ -502,7 +504,55 @@ pub fn single_data_swap(cpu: &mut CPU, instruction: u32) {
 }
 
 pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
-    
+    let p = (instruction & B_24) != 0;
+    let u = (instruction & B_23) != 0;
+    let s = (instruction & B_22) != 0;
+    let w = (instruction & B_21) != 0;
+    let l = (instruction & B_20) != 0;
+
+    let rn = (instruction & B_19_16) >> 16;
+    let register_list = instruction & B_15_0;
+
+    let base_address = cpu.register_read(rn);
+    let mut cur_address = base_address;
+    if !u {
+        cur_address -= register_list.count_ones();
+        if p {
+            cur_address -= 1;  // correct for the effects of pre-decrement, see graphics on p.85 of the PDF
+        }
+        else {
+            cur_address += 1;  // same as above, just for post-decrement
+        }
+    }
+
+    for i in 0..15 {
+        if register_list & (1 << i) == 0 {
+            continue;
+        }
+        // pre
+        if p {
+            cur_address += 1;
+        }
+        if l {
+            // load
+            cpu.register_write(i, cpu.memory_read(cur_address, 2));
+        }
+        else {
+            // store
+            cpu.memory_write(cur_address, 2, cpu.register_read(i));
+        }
+        // post
+        if !p {
+            cur_address += 1;
+        }
+    }
+
+    // TODO: handle S bit
+
+    // write back modified address
+    if w {
+        cpu.register_write(rn, if u {base_address + register_list.count_ones()} else {base_address - register_list.count_ones()});
+    }
 }
 
 // little helper to recycle code for shift by register/immediate shift
