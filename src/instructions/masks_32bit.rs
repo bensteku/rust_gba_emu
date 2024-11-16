@@ -26,3 +26,4 @@ pub const B_7_0:   u32 = 0x000000FF;  // bits 7 to 0
 pub const B_31:    u32 = 0x80000000;  // bit 31
 pub const B_31_28: u32 = 0xF0000000;  // bits 31 to 28
 pub const B_15_0:  u32 = 0x0000FFFF;  // first 16 bits
+pub const B_15:    u32 = 0x00008000;  // bit 15

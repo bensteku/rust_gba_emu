@@ -325,7 +325,7 @@ impl CPU {
                 // shift the desired byte to the lowest position
                 let shifted_value = value >> (8 * w_byte);
                 // set the rest to zero and return
-                return shifted_value & B_15_0;
+                return shifted_value & B_7_0;
             },
             1 => {
                 // same as above, just with different mask
@@ -433,8 +433,7 @@ impl CPU {
     // utilities to alias the first 16 registers depending on the mode the CPU is currently in
     // further, using 16 will get you the CPSR, 17 the SPSR of the mode you're currently in
     // extra note: do not use the enum aliases from above with this!!!!
-    pub fn register_read(&self, register: u32) -> u32 
-    {
+    pub fn register_read(&self, register: u32) -> u32 {
         let register: usize = register.try_into().unwrap();
         if register == 15 {
             return self.registers[15];  // special case for R15, as it's shared across all modes
@@ -456,8 +455,30 @@ impl CPU {
         }
     }
 
-    pub fn register_write(&mut self, register: u32, value: u32) 
-    {
+    pub fn register_read_custom(&self, register: u32, mode: CPUMode) -> u32 {
+        // same as above, but with user input for the mode
+        let register: usize = register.try_into().unwrap();
+        if register == 15 {
+            return self.registers[15];  // special case for R15, as it's shared across all modes
+        }
+        else if register == 16 {
+            return self.registers[Registers::CPSR];  // special case for number 16, as it's supposed to be the CPSR
+        }
+        if register > 17 {
+            panic!("Invalid register number!")
+        }
+        match mode {
+            // FIQ, IRQ, Supervisor, Undefined and Abort have a special case for their SPSR
+            CPUMode::User | CPUMode::System => return self.registers[register],
+            CPUMode::FIQ => return if register == 17 {return self.registers[Registers::SPSR_FIQ]} else if register >= 8 {self.registers[register + 8]} else {self.registers[register]},
+            CPUMode::IRQ => return if register == 17 {return self.registers[Registers::SPSR_IRQ]} else if register >= 13 {self.registers[register + 10]} else {self.registers[register]},
+            CPUMode::Supervisor => return if register == 17 {return self.registers[Registers::SPSR_SVC]} else if register >= 13 {self.registers[register + 12]} else {self.registers[register]},
+            CPUMode::Abort => return if register == 17 {return self.registers[Registers::SPSR_ABT]} else if register >= 13 {self.registers[register + 14]} else {self.registers[register]},
+            CPUMode::Undefined => return if register == 17 {return self.registers[Registers::SPSR_UND]} else if register >= 13 {self.registers[register + 16]} else {self.registers[register]},
+        }
+    }
+
+    pub fn register_write(&mut self, register: u32, value: u32) {
         let register: usize = register.try_into().unwrap();
         if register == 15 {
             self.registers[15] = value;  // special case for R15, as it's shared across all modes
@@ -466,6 +487,24 @@ impl CPU {
             self.registers[16] = value;  // special case for element 16, as it's the CPSR
         }
         match self.get_mode() {
+            CPUMode::User | CPUMode::System => self.registers[register] = value,
+            CPUMode::FIQ => if register == 17 {self.registers[Registers::SPSR_FIQ] = value} else if register >= 8 {self.registers[register + 8] = value} else {self.registers[register] = value},
+            CPUMode::IRQ => if register == 17 {self.registers[Registers::SPSR_IRQ] = value} else if register >= 13 {self.registers[register + 10] = value} else {self.registers[register] = value},
+            CPUMode::Supervisor => if register == 17 {self.registers[Registers::SPSR_SVC] = value} else if register >= 13 {self.registers[register + 12] = value} else {self.registers[register] = value},
+            CPUMode::Abort => if register == 17 {self.registers[Registers::SPSR_ABT] = value} else if register >= 13 {self.registers[register + 14] = value} else {self.registers[register] = value},
+            CPUMode::Undefined => if register == 17 {self.registers[Registers::SPSR_UND] = value} else if register >= 13 {self.registers[register + 16] = value} else {self.registers[register] = value},
+        }
+    }
+
+    pub fn register_write_custom(&mut self, register: u32, value: u32, mode: CPUMode) {
+        let register: usize = register.try_into().unwrap();
+        if register == 15 {
+            self.registers[15] = value;  // special case for R15, as it's shared across all modes
+        }
+        else if register == 16 {
+            self.registers[16] = value;  // special case for element 16, as it's the CPSR
+        }
+        match mode {
             CPUMode::User | CPUMode::System => self.registers[register] = value,
             CPUMode::FIQ => if register == 17 {self.registers[Registers::SPSR_FIQ] = value} else if register >= 8 {self.registers[register + 8] = value} else {self.registers[register] = value},
             CPUMode::IRQ => if register == 17 {self.registers[Registers::SPSR_IRQ] = value} else if register >= 13 {self.registers[register + 10] = value} else {self.registers[register] = value},

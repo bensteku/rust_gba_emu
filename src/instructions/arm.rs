@@ -504,6 +504,7 @@ pub fn single_data_swap(cpu: &mut CPU, instruction: u32) {
 }
 
 pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
+    // p.82
     let p = (instruction & B_24) != 0;
     let u = (instruction & B_23) != 0;
     let s = (instruction & B_22) != 0;
@@ -512,6 +513,11 @@ pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
 
     let rn = (instruction & B_19_16) >> 16;
     let register_list = instruction & B_15_0;
+
+    // R15 block
+    if rn == 15 {
+        panic!("R15 used as base register in Block Data Transfer instruction {:x}!", instruction);
+    }
 
     let base_address = cpu.register_read(rn);
     let mut cur_address = base_address;
@@ -525,6 +531,23 @@ pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
         }
     }
 
+    // check if R15 is present and s is set, we need to change a few things
+    let mut usermode_switch= false;
+    if s {
+        if l {
+            if register_list & B_15 != 0 {
+                // SPSR of mode is transferred to CPSR if R15 in list and s is set
+                cpu.register_write(16, cpu.register_read(17));
+            }
+            else {
+                usermode_switch = true;
+            }   
+        }
+        else {
+            usermode_switch = true;
+        }
+    }
+
     for i in 0..15 {
         if register_list & (1 << i) == 0 {
             continue;
@@ -535,11 +558,22 @@ pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
         }
         if l {
             // load
-            cpu.register_write(i, cpu.memory_read(cur_address, 2));
+            if usermode_switch {
+                cpu.register_write_custom(i, cpu.memory_read(cur_address, 2), CPUMode::User);
+            }
+            else {
+                cpu.register_write(i, cpu.memory_read(cur_address, 2));
+            }
         }
         else {
             // store
-            cpu.memory_write(cur_address, 2, cpu.register_read(i));
+            if usermode_switch {
+                // memory write with the registers being read from User mode instead of current mode
+                cpu.memory_write(cur_address, 2, cpu.register_read_custom(i, CPUMode::User));
+            }
+            else {
+                cpu.memory_write(cur_address, 2, cpu.register_read(i));
+            }
         }
         // post
         if !p {
