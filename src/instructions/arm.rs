@@ -1,6 +1,6 @@
 use std::iter;
 
-use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_32bit::*, not_implemented};
+use crate::{cpu::{self, CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_32bit::*, not_implemented};
 
 // table for opcodes and their handling functions
 // pattern, mask, handler function
@@ -25,7 +25,7 @@ const ARM_OPCODES: [(u32, u32, ProcFnArm); 17] = [
         (0x0C000000, 0x0E000000, placeholder_arm),  // coprocessor data transfer
         (0x0E000000, 0x0F000000, placeholder_arm),  // coprocessor data operation
         (0x0E000010, 0x0F000010, placeholder_arm),  // coprocessor register transfer
-        (0x0F000000, 0x0F000000, placeholder_arm),  // software interrupt
+        (0x0F000000, 0x0F000000, software_interrupt),  // software interrupt
     ];
 
 type ALUFnArm = fn(&mut CPU, bool, u32, u32) -> u32;
@@ -484,6 +484,7 @@ pub fn halfword_signed_data_transfer(cpu: &mut CPU, instruction: u32) {
 }
 
 pub fn single_data_swap(cpu: &mut CPU, instruction: u32) {
+    // p.89
     let b = if (instruction & B_22) != 0 {0} else {2};
 
     let rn = (instruction & B_19_16) >> 16;
@@ -507,7 +508,7 @@ pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
     // p.82
     let p = (instruction & B_24) != 0;
     let u = (instruction & B_23) != 0;
-    let s = (instruction & B_22) != 0;
+    let s: bool = (instruction & B_22) != 0;
     let w = (instruction & B_21) != 0;
     let l = (instruction & B_20) != 0;
 
@@ -581,12 +582,62 @@ pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
         }
     }
 
-    // TODO: handle S bit
-
     // write back modified address
     if w {
         cpu.register_write(rn, if u {base_address + register_list.count_ones()} else {base_address - register_list.count_ones()});
     }
+}
+
+pub fn software_interrupt(cpu: &mut CPU, _instruction: u32) {
+    // change mode to software interrupt
+    cpu.set_mode(CPUMode::Supervisor);
+    // save PC in R14_svc
+    cpu.register_write(14, cpu.register_read(15));
+    // set PC to 0x08
+    cpu.register_write(15, 0x08);
+    // save CPSR to SPSR_svc
+    cpu.register_write(17, cpu.register_read(16));
+    // most likely unfinished
+}
+
+pub fn coprocessor_data_operations(cpu: &mut CPU, instruction: u32) {
+    // p.93
+    let cp_opc = (instruction & B_23_20) >> 20;
+    let crn = (instruction & B_19_16) >> 16;
+    let crd = (instruction & B_15_12) >> 12;
+    let cphash = (instruction & B_11_8) >> 8;
+    let cp = (instruction & B_7_5) >> 5;
+    let crm = (instruction & B_3_0);
+
+    // nothing else to do here apparently 
+}
+
+pub fn coprocessor_data_transfer(cpu: &mut CPU, instruction: u32) {
+    // p.95
+    let p = (instruction & B_24) != 0;
+    let u = (instruction & B_23) != 0;
+    let n = (instruction & B_22) != 0;
+    let w = (instruction & B_21) != 0;
+    let l = (instruction & B_20) != 0;
+
+    let rn = (instruction & B_19_16) >> 16;
+    let crd = (instruction & B_15_12) >> 12;
+    let cphash = (instruction & B_11_8) >> 8;
+    let offset = instruction & B_7_0;
+
+    if w && rn == 15 {
+        panic!("R15 must not be the base register in coprocessor data transfer with write back enabled, instruction: {:x}.", instruction);
+    }
+
+    not_implemented!();
+}
+
+pub fn coprocessor_register_transfer(cpu: &mut CPU, instruction: u32) {
+    not_implemented!();
+}
+
+pub fn undefined(cpu: &mut CPU, instruction: u32) {
+    not_implemented!();
 }
 
 // little helper to recycle code for shift by register/immediate shift
