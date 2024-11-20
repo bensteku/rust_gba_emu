@@ -1,6 +1,7 @@
-use crate::not_implemented;
-type ProcFnThumb = fn(u16);
-pub fn placeholder_thumb(opcode: u16) {
+use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_16bit::*, not_implemented};
+
+type ProcFnThumb = fn(&mut CPU, u16);
+pub fn placeholder_thumb(cpu: &mut CPU, opcode: u16) {
     not_implemented!();
 }
 const THUMB_OPCODES: [(u16, u16, ProcFnThumb); 19] = [
@@ -24,3 +25,22 @@ const THUMB_OPCODES: [(u16, u16, ProcFnThumb); 19] = [
         (0xE000, 0xF800, placeholder_thumb),  // uncoditional branch
         (0xF000, 0xF000, placeholder_thumb),  // long branch with link
     ];
+
+pub fn process_instruction_thumb(cpu: &mut CPU, instruction: u16) {
+    let mut handled = false;
+    for (pattern, mask, handler) in THUMB_OPCODES
+    {
+        if (instruction & mask) == pattern
+        {
+            handler(cpu, instruction);
+            handled = true;
+            break;
+        }
+    }
+    if !handled
+    {
+        println!("Unknown instruction detected!");
+        println!("Instruction occured at {}.", 0);
+        println!("Instruction binary: {:b}", instruction);
+    }
+}

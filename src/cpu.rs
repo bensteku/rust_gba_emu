@@ -1,3 +1,4 @@
+use crate::instructions::thumb::process_instruction_thumb;
 use crate::{instructions::arm::process_instruction_arm, not_implemented, instructions::masks_32bit::*, util::*};
 use std::ops::Index;
 use std::ops::IndexMut;
@@ -146,7 +147,8 @@ impl CPU {
     pub fn cycle(&mut self) {
         if self.get_state()
         {
-            not_implemented!();
+            let instruction: u16 = 0x0000;
+            process_instruction_thumb(self, instruction);
         }
         else
         {

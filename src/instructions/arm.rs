@@ -1,6 +1,4 @@
-use std::iter;
-
-use crate::{cpu::{self, CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_32bit::*, not_implemented};
+use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_32bit::*, not_implemented};
 
 // table for opcodes and their handling functions
 // pattern, mask, handler function
@@ -408,10 +406,10 @@ pub fn halfword_signed_data_transfer(cpu: &mut CPU, instruction: u32) {
     let h = (instruction & B_5) != 0;
 
     if s && l {
-        panic!("In halfword/signed data transfer instruction {:x} the S and L bits are both set!", instruction);
+        panic!("In halfword/signed data transfer instruction {:b} the S and L bits are both set!", instruction);
     }
     if !s && !h {
-        panic!("Swap demanded in halfword/signed data transfer instruction {:x}!", instruction)
+        panic!("Swap demanded in halfword/signed data transfer instruction {:b}!", instruction)
     }
 
     let rn = (instruction & B_19_16) >> 16;
@@ -517,7 +515,7 @@ pub fn block_data_transfer(cpu: &mut CPU, instruction: u32) {
 
     // R15 block
     if rn == 15 {
-        panic!("R15 used as base register in Block Data Transfer instruction {:x}!", instruction);
+        panic!("R15 used as base register in Block Data Transfer instruction {:b}!", instruction);
     }
 
     let base_address = cpu.register_read(rn);
@@ -626,7 +624,7 @@ pub fn coprocessor_data_transfer(cpu: &mut CPU, instruction: u32) {
     let offset = instruction & B_7_0;
 
     if w && rn == 15 {
-        panic!("R15 must not be the base register in coprocessor data transfer with write back enabled, instruction: {:x}.", instruction);
+        panic!("R15 must not be the base register in coprocessor data transfer with write back enabled, instruction: {:b}.", instruction);
     }
 
     not_implemented!();
