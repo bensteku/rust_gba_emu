@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, 
             instructions::masks_32bit::*, 
             instructions::basic_ops::*,
@@ -50,6 +51,16 @@ const ARM_DATA_OPS: [ALUFnArm; 16] = [
         mvn_op,  // MVN
 ];
 
+// helper function to check whether an op is logical or arithmetical
+// should compile to a O(1) check
+fn logical_op(op: u32) -> bool {
+    match op {
+        0 | 1 | 8 | 9 | 12 | 13 | 14 | 15 => true,
+        _ => false
+    }
+}
+
+
 const ARM_SHIFT_TYPES: [ALUFnArm; 4] = [
     logical_left_32bit,      // 00: logical left
     logical_right_32bit,     // 01: logical right
@@ -88,6 +99,10 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
     let rd: u32 = (instruction & B_15_12) >> 12;
     let opcode: u32 = (instruction & B_24_21) >> 21;
 
+    // check whether the operation we're supposed to perform is either logical or arithmetic
+    // in case it's logical, we'll use the carry out from the shifting operations, otherwise we ignore it
+    let logical: bool = logical_op(opcode);
+    
     // resolve first operand
     let op1 = cpu.register_read(rn);
     // resolve the second operand
@@ -97,7 +112,7 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
         // procedure: extend the 8 bit value to 32 bit, then rotate by twice the amount in the rotate bits
         let rotate: u32 = (instruction & B_11_8) >> 8;
         if rotate != 0 {
-            op2 = rotate_32bit(cpu, s, instruction & B_7_0, rotate * 2);
+            op2 = rotate_32bit(cpu, logical, instruction & B_7_0, rotate * 2);
         }
         else {
             op2 = instruction & B_7_0;
@@ -130,7 +145,7 @@ pub fn data_processing(cpu: &mut CPU, instruction: u32) {
         let shift_type: u32 = (instruction & B_6_5) >> 5;
         // note: we run the shifts even if the shift amount turns out to be 0 such that the carry flags get affected correctly
         // even if nothing actually happens to the operand value
-        op2 = ARM_SHIFT_TYPES[shift_type as usize](cpu, s, op2_init_value, shift_amount);    
+        op2 = ARM_SHIFT_TYPES[shift_type as usize](cpu, logical, op2_init_value, shift_amount);    
     }
     // now that both operands are known, we can apply the operations onto it
     let res = ARM_DATA_OPS[opcode as usize](cpu, s, op1, op2);
