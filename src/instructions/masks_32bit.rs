@@ -37,3 +37,5 @@ pub const B_10_8:  u32 = 0x00000700;  // bits 10 to 8
 pub const B_5_3:   u32 = 0x00000038;  // bits 5 to 3
 pub const B_2_0:   u32 = 0x00000007;  // bits 2 to 0
 pub const B_8_6:   u32 = 0x000001C0;  // bit 8 to 6
+pub const B_9_6:   u32 = 0x000003C0;  // bit 9 to 6
+pub const B_9_8:   u32 = 0x00000300;  // bit 9 and 8

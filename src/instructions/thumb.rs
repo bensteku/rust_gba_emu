@@ -10,9 +10,9 @@ pub fn placeholder_thumb(cpu: &mut CPU, opcode: u32) {
 const THUMB_OPCODES: [(u16, u16, ProcFnThumb); 19] = [
         (0x0000, 0xE000, move_shifted_register),  // move shifted register
         (0x1800, 0xF800, add_subtract),  // add/subtract
-        (0x2000, 0xE000, placeholder_thumb),  // move/compare/add/subtract immediate
-        (0x4000, 0xFC00, placeholder_thumb),  // alu operations
-        (0x4400, 0xFC00, placeholder_thumb),  // hi register operations/branch exchange
+        (0x2000, 0xE000, move_compare_add_subtract_immediate),  // move/compare/add/subtract immediate
+        (0x4000, 0xFC00, alu_operations),  // alu operations
+        (0x4400, 0xFC00, hi_register_operations_be),  // hi register operations/branch exchange
         (0x4800, 0xF800, placeholder_thumb),  // pc relative load
         (0x5000, 0xF200, placeholder_thumb),  // load/store with register offset
         (0x5200, 0xF200, placeholder_thumb),  // load/store sign-extended byte/halfword
@@ -28,6 +28,26 @@ const THUMB_OPCODES: [(u16, u16, ProcFnThumb); 19] = [
         (0xE000, 0xF800, placeholder_thumb),  // uncoditional branch
         (0xF000, 0xF000, placeholder_thumb),  // long branch with link
     ];
+
+type ALUFnArm = fn(&mut CPU, bool, u32, u32) -> u32;
+const ALU_OPCODES: [ALUFnArm; 16] = [
+        and_op,
+        eor_op,
+        lsl_op,
+        lsr_op,
+        asr_op,
+        adc_op,
+        sbc_op,
+        ror_op,
+        tst_op,
+        neg_op,
+        cmp_op,
+        cmn_op,
+        orr_op,
+        mul_op,
+        bic_op,
+        mov_op,
+];
 
 pub fn process_instruction_thumb(cpu: &mut CPU, instruction: u16) {
     let mut handled = false;
@@ -136,4 +156,27 @@ pub fn move_compare_add_subtract_immediate(cpu: &mut CPU, instruction: u32) {
         let res = sub_op(cpu, true, cpu.register_read(rd), offset8);
         cpu.register_write(rd, res);
     }
+}
+
+pub fn alu_operations(cpu: &mut CPU, instruction: u32) {
+    // p.117
+    let opcode = (instruction & B_9_6) >> 6;
+    let rs = (instruction & B_5_3) >> 3;
+    let rd = instruction & B_2_0;
+
+    let op1 = cpu.register_read(rd);
+    let op2 = cpu.register_read(rs);
+    let res = ALU_OPCODES[opcode as usize](cpu, true, op1, op2);
+    cpu.register_write(rd, res);
+}
+
+pub fn hi_register_operations_be(cpu: &mut CPU, instruction: u32) {
+    // p.119
+    let opcode = (instruction & B_9_8) >> 8;
+    let h1 = (instruction & B_7) >> 7;
+    let h2 = (instruction & B_6) >> 6;
+    let rshs = (instruction & B_5_3) >> 3;
+    let rdhd = instruction & B_2_0;
+
+    
 }

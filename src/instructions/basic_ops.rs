@@ -325,3 +325,44 @@ pub fn arithmetic_right_32bit(cpu: &mut CPU, s: bool, value: u32, amount: u32) -
 
     return result;
 }
+
+/*
+    additional op functions for THUMB mode
+*/
+
+pub fn lsl_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = logical_left_32bit(cpu, s, op1, op2);
+    arithmetic_flag_helper(cpu, s, cpu.get_condition_flag(ConditionFlags::C), false, res);
+    return res;
+}
+
+pub fn lsr_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = logical_right_32bit(cpu, s, op1, op2);
+    arithmetic_flag_helper(cpu, s, cpu.get_condition_flag(ConditionFlags::C), false, res);
+    return res;
+}
+
+pub fn asr_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = arithmetic_right_32bit(cpu, s, op1, op2);
+    arithmetic_flag_helper(cpu, s, cpu.get_condition_flag(ConditionFlags::C), false, res);
+    return res;
+}
+
+pub fn ror_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    let res = rotate_32bit(cpu, s, op1, op2);
+    arithmetic_flag_helper(cpu, s, cpu.get_condition_flag(ConditionFlags::C), false, res);
+    return res;
+}
+
+pub fn neg_op(cpu: &mut CPU, s: bool, _op1: u32, op2: u32) -> u32 {
+    let res = (-(op2 as i32)) as u32;
+    arithmetic_flag_helper(cpu, s, cpu.get_condition_flag(ConditionFlags::C), false, res);
+    return res;
+}
+
+pub fn mul_op(cpu: &mut CPU, s: bool, op1: u32, op2: u32) -> u32 {
+    // apparently we don't care about overflow here? have to verify
+    let res = op1 * op2;
+    arithmetic_flag_helper(cpu, s, cpu.get_condition_flag(ConditionFlags::C), false, res);
+    return res;
+}
