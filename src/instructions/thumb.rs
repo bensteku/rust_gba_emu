@@ -59,53 +59,24 @@ pub fn move_shifted_register(cpu: &mut CPU, instruction: u32) {
 
     // execute operations according to opcode
     let source_value = cpu.register_read(rs);
+    let res: u32;
     if opcode == 0 {
         // left shift
-        let carry;
-        if offset5 != 0 {
-            carry = false;
-        }
-        else {
-            carry = ((source_value >> (32 - offset5)) & B_0) != 0;
-        }
-        let result = source_value << offset5;
-        cpu.register_write(rd, result);
-        arithmetic_flag_helper(cpu, true, carry, false, result);
+        res = logical_left_32bit(cpu, true, source_value, offset5);
+        // set the flags according to result, copy over the current carry flag because the shifter method already computes that correctly
+        arithmetic_flag_helper(cpu, true, cpu.get_condition_flag(ConditionFlags::C), false, res);
     }
     else if opcode == 1 {
         // right shift
-        let carry;
-        let result;
-        if offset5 != 0 {
-            result = source_value >> offset5;
-            carry = ((source_value >> (offset5 - 1)) & B_0) != 0;
-        }
-        else {
-            result = 0;
-            carry = ((source_value & B_31) >> 31) != 0;
-        }
-        cpu.register_write(rd, result);
-        // determine carry out
-        arithmetic_flag_helper(cpu, true, carry, false, result);
+        res = logical_right_32bit(cpu, true, source_value, offset5);
+        arithmetic_flag_helper(cpu, true, cpu.get_condition_flag(ConditionFlags::C), false, res);
     }
     else {
         // arithmetic right shift
-        let tmp: i32 = source_value as i32;
-        let result;
-        let carry;
-        if offset5 != 0 {
-            result = tmp >> offset5;
-            carry = ((source_value >> (offset5 - 1)) & B_0) != 0;
-        }
-        else {
-            // sign extension
-            result = if tmp as u32 & B_31 != 0 {0xFFFFFFFF} else {0x0};
-            carry = (tmp as u32 & B_31) != 0;
-        }
-        cpu.register_write(rd, result as u32);
-        let carry = ((source_value >> (offset5 - 1)) & B_0) != 0;
-        arithmetic_flag_helper(cpu, true, carry, false, result as u32);
+        res = arithmetic_right_32bit(cpu, true, source_value, offset5);
+        arithmetic_flag_helper(cpu, true, cpu.get_condition_flag(ConditionFlags::C), false, res);
     }
+    cpu.register_write(rd, res);
 }
 
 pub fn add_subtract(cpu: &mut CPU, instruction: u32) {
@@ -127,13 +98,16 @@ pub fn add_subtract(cpu: &mut CPU, instruction: u32) {
         operand2 = cpu.register_read(rn_offset3);
     }
 
+    let res;
     if opcode == 1 {
         // subtract
-        cpu.register_write(rd, operand1 - operand2);
+        res = sub_op(cpu, true, operand1, operand2);
+        cpu.register_write(rd, res);
     }
     else {
         // add
-        cpu.register_write(rd, operand1 + operand2);
+        res = add_op(cpu, true, operand1, operand2);
+        cpu.register_write(rd, res);
     }
 }
 
@@ -145,18 +119,21 @@ pub fn move_compare_add_subtract_immediate(cpu: &mut CPU, instruction: u32) {
 
     if opcode == 0 {
         // immediate move
+        arithmetic_flag_helper(cpu, true, cpu.get_condition_flag(ConditionFlags::C), cpu.get_condition_flag(ConditionFlags::V), offset8);
         cpu.register_write(rd, offset8);
     }
     else if opcode == 1 {
         // immediate compare
-        not_implemented!()
+        cmp_op(cpu, true, cpu.register_read(rd), offset8);
     }
     else if opcode == 2 {
         // immediate add
-        cpu.register_write(rd, cpu.register_read(rd) + offset8);
+        let res = add_op(cpu, true, cpu.register_read(rd), offset8);
+        cpu.register_write(rd, res);
     }
     else {
         // immediate subtract
-        cpu.register_write(rd, cpu.register_read(rd) - offset8);
+        let res = sub_op(cpu, true, cpu.register_read(rd), offset8);
+        cpu.register_write(rd, res);
     }
 }
