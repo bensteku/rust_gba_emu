@@ -1,7 +1,10 @@
-use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, instructions::masks_16bit::*, not_implemented};
+use crate::{cpu::{CPUMode, ConditionFlags, Registers::*, CPU}, 
+            instructions::masks_32bit::*, 
+            not_implemented,
+            instructions::basic_ops::*};
 
-type ProcFnThumb = fn(&mut CPU, u16);
-pub fn placeholder_thumb(cpu: &mut CPU, opcode: u16) {
+type ProcFnThumb = fn(&mut CPU, u32);
+pub fn placeholder_thumb(cpu: &mut CPU, opcode: u32) {
     not_implemented!();
 }
 const THUMB_OPCODES: [(u16, u16, ProcFnThumb); 19] = [
@@ -32,7 +35,7 @@ pub fn process_instruction_thumb(cpu: &mut CPU, instruction: u16) {
     {
         if (instruction & mask) == pattern
         {
-            handler(cpu, instruction);
+            handler(cpu, instruction as u32);
             handled = true;
             break;
         }
@@ -45,26 +48,14 @@ pub fn process_instruction_thumb(cpu: &mut CPU, instruction: u16) {
     }
 }
 
-#[inline]
-fn arithmetic_flag_helper(cpu: &mut CPU, carry: bool, overflow: bool, res: u32) {
-    // z flag
-    if res != 0 {cpu.set_condition_flag(ConditionFlags::Z, true);} else {cpu.set_condition_flag(ConditionFlags::Z, false);} 
-    // n flag
-    if res & B_31 != 0 {cpu.set_condition_flag(ConditionFlags::N, true);} else {cpu.set_condition_flag(ConditionFlags::N, false);}
-    // c flag
-    if overflow {cpu.set_condition_flag(ConditionFlags::V, true);} else {cpu.set_condition_flag(ConditionFlags::V, false);}
-    // c flag
-    if carry {cpu.set_condition_flag(ConditionFlags::C, true);} else {cpu.set_condition_flag(ConditionFlags::C, false);}
-}
-
-pub fn move_shifted_register(cpu: &mut CPU, instruction: u16) {
+pub fn move_shifted_register(cpu: &mut CPU, instruction: u32) {
     // p.111
 
     // extract OP code, offset and registers
     let opcode = (instruction & B_12_11) >> 11;
     let offset5 = (instruction & B_10_6) >> 6;
-    let rs = ((instruction & B_5_3) >> 3).into();
-    let rd = (instruction & B_2_0).into();
+    let rs = (instruction & B_5_3) >> 3;
+    let rd = instruction & B_2_0;
 
     // execute operations according to opcode
     let source_value = cpu.register_read(rs);
@@ -79,7 +70,7 @@ pub fn move_shifted_register(cpu: &mut CPU, instruction: u16) {
         }
         let result = source_value << offset5;
         cpu.register_write(rd, result);
-        logical_flag_helper(cpu, carry, false, result);
+        arithmetic_flag_helper(cpu, true, carry, false, result);
     }
     else if opcode == 1 {
         // right shift
@@ -95,7 +86,7 @@ pub fn move_shifted_register(cpu: &mut CPU, instruction: u16) {
         }
         cpu.register_write(rd, result);
         // determine carry out
-        logical_flag_helper(cpu, carry, false, result);
+        arithmetic_flag_helper(cpu, true, carry, false, result);
     }
     else {
         // arithmetic right shift
@@ -108,23 +99,22 @@ pub fn move_shifted_register(cpu: &mut CPU, instruction: u16) {
         }
         else {
             // sign extension
-            result = if result & B_31 != 0 {0xFFFFFFFF} else {0x0};
-            carry = (tmp & B_31) != 0;
+            result = if tmp as u32 & B_31 != 0 {0xFFFFFFFF} else {0x0};
+            carry = (tmp as u32 & B_31) != 0;
         }
-        let result = tmp >> offset5;
-        cpu.register_write(register, result as u32);
+        cpu.register_write(rd, result as u32);
         let carry = ((source_value >> (offset5 - 1)) & B_0) != 0;
-        logical_flag_helper(cpu, carry, false, result);
+        arithmetic_flag_helper(cpu, true, carry, false, result as u32);
     }
 }
 
-pub fn add_subtract(cpu: &mut CPU, instruction: u16) {
+pub fn add_subtract(cpu: &mut CPU, instruction: u32) {
     // p.113
-    let i = (instruction & B_10) >> 10;
+    let i = (instruction as u32 & B_10 ) >> 10;
     let opcode = (instruction & B_9) >> 9;
-    let rn_offset3 = ((instruction & B_8_6) >> 6).into();
-    let rs = ((instruction & B_5_3) >> 3).into();
-    let rd = (instruction & B_2_0).into();
+    let rn_offset3 = (instruction & B_8_6) >> 6;
+    let rs = (instruction & B_5_3) >> 3;
+    let rd = instruction & B_2_0;
 
     let operand1 = cpu.register_read(rs);
     let operand2;
@@ -147,11 +137,11 @@ pub fn add_subtract(cpu: &mut CPU, instruction: u16) {
     }
 }
 
-pub fn move_compare_add_subtract_immediate(cpu: &mut CPU, instruction: u16) {
+pub fn move_compare_add_subtract_immediate(cpu: &mut CPU, instruction: u32) {
     // p.115
     let opcode = (instruction & B_12_11) >> 11;
-    let rd = ((instruction & B_10_8) >> 8).into();
-    let offset8: u32 = (instruction & B_7_0).into();
+    let rd = (instruction & B_10_8) >> 8;
+    let offset8: u32 = instruction & B_7_0;
 
     if opcode == 0 {
         // immediate move
