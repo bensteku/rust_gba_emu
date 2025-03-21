@@ -49,11 +49,11 @@ const ALU_OPCODES: [ALUFnArm; 16] = [
         mov_op,
 ];
 
-pub fn process_instruction_thumb(cpu: &mut CPU, instruction: u16) {
+pub fn process_instruction_thumb(cpu: &mut CPU, instruction: u32) {
     let mut handled = false;
     for (pattern, mask, handler) in THUMB_OPCODES
     {
-        if (instruction & mask) == pattern
+        if ((instruction as u16) & mask) == pattern
         {
             handler(cpu, instruction as u32);
             handled = true;
@@ -173,10 +173,32 @@ pub fn alu_operations(cpu: &mut CPU, instruction: u32) {
 pub fn hi_register_operations_be(cpu: &mut CPU, instruction: u32) {
     // p.119
     let opcode = (instruction & B_9_8) >> 8;
-    let h1 = (instruction & B_7) >> 7;
-    let h2 = (instruction & B_6) >> 6;
+    let h1 = (instruction & B_7) != 0;
+    let h2 = (instruction & B_6) != 0;
     let rshs = (instruction & B_5_3) >> 3;
     let rdhd = instruction & B_2_0;
 
-    
+    let rs = if h1 {8 + rdhd} else {rdhd};
+    let rd = if h2 {8 + rshs} else {rshs};
+
+    let op1 = cpu.register_read(rd);
+    let op2 = cpu.register_read(rs);
+
+    // all the ops set not CPSR aside from cmp
+    if opcode == 0 {
+        let res = add_op(cpu, false, op1, op2);
+        cpu.register_write(rd, res);
+    }
+    else if opcode == 1 {
+        cmp_op(cpu, true, op1, op2);
+    }
+    else if opcode == 2 {
+        cpu.register_write(rd, op2);
+    }
+    else if opcode == 3 {
+        let t_bit = op2 & B_0;  // 0: ARM, 1: THUMB
+        cpu.registers[R15] = cpu.register_read(op2) & !0b1;
+        cpu.set_state(t_bit != 0);
+        cpu.branch = true;
+    }
 }

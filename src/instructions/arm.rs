@@ -230,8 +230,9 @@ pub fn branch_and_exchange(cpu: &mut CPU, instruction: u32) {
     if rn == 15 {
         println!("[WARNING] Branch and exchange instruction into the program counter register (R15), undefined behavior!")
     }
-    cpu.registers[R15] = cpu.register_read(rn);
+    cpu.registers[R15] = cpu.register_read(rn) & !0b11;  // null out last two bits
     cpu.set_state(t_bit != 0);
+    cpu.branch = true;
 }
 
 pub fn branch(cpu: &mut CPU, instruction: u32) {
@@ -252,6 +253,7 @@ pub fn branch(cpu: &mut CPU, instruction: u32) {
         offset = offset | 0x00000000;
     }
     cpu.registers[R15] += offset;
+    cpu.branch = true;
 }
 
 pub fn multiply(cpu: &mut CPU, instruction: u32) {

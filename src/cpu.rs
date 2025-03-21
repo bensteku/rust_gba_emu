@@ -112,10 +112,18 @@ pub enum ConditionFlags {
     N = 0x8000000,
 }
 
+#[repr(u32)]
+pub enum RWType {
+    Byte = 0,
+    HalfWord = 1,
+    Word = 2,
+}
+
 // emulation of a ARMT7DMI CPU
 // memory is included here, this mirrors the way it was manufactured in real life where the RAM is integrated into the CPU chip
 pub struct CPU {
     cycles: u128,
+    pub branch: bool,  // flag to handle the PC in case a branch occured
     pub registers: [u32; 37],
     // memory
     pub bios: [u32; 4096],  // 16 KB in real life
@@ -133,6 +141,7 @@ impl CPU {
         init[Registers::CPSR] = 16; // 16 == binary for user mode
         CPU {
             cycles: 0,
+            branch: false,
             registers: init,
             bios: [0; 4096],  // TODO: load in bios into this
             board_ram: [0; 65536],
@@ -145,19 +154,32 @@ impl CPU {
     }
 
     pub fn cycle(&mut self) {
+        let pc = self.registers[15];
         if self.get_state()
         {
-            let instruction: u16 = 0x0000;
+            let instruction: u32 = self.memory_read(pc, RWType::HalfWord);
             process_instruction_thumb(self, instruction);
+            if self.branch {
+                self.branch = false;
+            }
+            else {
+                self.registers[15] = self.registers[15].wrapping_add(2);
+            }
         }
         else
         {
-            let instruction: u32 = 0x00000000;  // TODO: replace with read
+            let instruction: u32 = self.memory_read(pc, RWType::Word);
             // check if condition flags in instruction match with CPU state
             // if not then ignore the instruction
             if self.check_condition(instruction) {
                 process_instruction_arm(self, instruction);
             }  
+            if self.branch {
+                self.branch = false;
+            }
+            else {
+                self.registers[15] = self.registers[15].wrapping_add(4);
+            }
         }
     }
 
@@ -257,12 +279,12 @@ impl CPU {
         return self.registers[Registers::CPSR] & 0xF0000000;
     }
 
-    pub fn memory_read(&self, address: u32, r_type: u32) -> u32 {
+    pub fn memory_read(&self, address: u32, rw_type: RWType) -> u32 {
         /* 
             reads memory from address in RAM
             if read_type is 0, a single byte is loaded and placed into the lower 8 bits
             if read_type is 1, a halfword is loaded and placed into the lower 16 bits
-            if read_type is 2, a word is loaded and returend
+            if read_type is 2, a word is loaded and returned
             if word is false, a single byte is loaded and placed into the lower 8 bits of the return value, with the rest set to 0
         */
 
@@ -322,29 +344,29 @@ impl CPU {
             panic!("Read attempt in unused area of memory! Address: {:x}", address);
         }
 
-        match r_type {
-            0 => {
+        match rw_type {
+            RWType::Byte => {
                 // shift the desired byte to the lowest position
                 let shifted_value = value >> (8 * w_byte);
                 // set the rest to zero and return
                 return shifted_value & B_7_0;
             },
-            1 => {
+            RWType::HalfWord => {
                 // same as above, just with different mask
                 let shifted_value = value >> (8 * w_byte);
                 return shifted_value & B_15_0;
             }
-            2 => {
+            RWType::Word => {
                 // we need to rotate the value such that the addressed byte ends up at position 0 to 7 in the return value
                 // note: in contrast to half word loads, there is no masking or sign extend here
                 // using the inbuilt Rust rotate here because there are no side effects on the processor flags
                 return value.rotate_left(8 * w_byte);
             },
-            _ => panic!("Invalid read type {} in memory read!", r_type)
+            _ => panic!("Invalid read type {} in memory read!", rw_type)
         }
     }
 
-    pub fn memory_write(&mut self, address: u32, w_type: u32, value: u32) {
+    pub fn memory_write(&mut self, address: u32, rw_type: RWType, value: u32) {
         // writes to memory address in RAM
         // if write type is 0, a byte write is performed
         // value contains the byte in bits 0 to 7 and otherwise it's 0
@@ -358,26 +380,26 @@ impl CPU {
         // determine data to write and mask
         let write_data: u32;
         let write_mask: u32;
-        match w_type {
-            0 => {
+        match rw_type {
+            RWType::Byte => {
                 write_data = value << (8 * w_byte);  // shift data into correct position
                 write_mask = !(0x000000FF << (8 * w_byte));  // create mask in correct position
             },
-            1 => {
+            RWType::HalfWord => {
                 if w_byte % 2 != 0 {
                     panic!("Write of halfword into non-halfword-aligned address {:x}!", address);
                 }
                 write_data = value << (8 * w_byte);
                 write_mask = !(0x0000FFFF << (8 * w_byte));
             },
-            2 => {
+            RWType::Word => {
                 if w_byte != 0 {
                     panic!("Write of word into non-word-aligned address {:x}!", address);
                 }
                 write_data = value;
                 write_mask = 0x0;
             },
-            _ => panic!("Invalid write mode {} in memory write!", w_type)
+            _ => panic!("Invalid write mode {} in memory write!", rw_type)
         }
 
         // write value into memory
